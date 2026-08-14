@@ -16,6 +16,14 @@ android {
         targetSdk = 35
         versionCode = 100
         versionName = "1.0.0"
+
+        externalNativeBuild {
+            cmake {
+                arguments("-DCMAKE_BUILD_TYPE=Release", "-DWHISPER_NO_OPENMP=ON")
+                cFlags("-O3", "-DNDEBUG")
+                cppFlags("-O3", "-DNDEBUG")
+            }
+        }
     }
 
     compileOptions {
