@@ -12,7 +12,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 class WhisperEngine {
@@ -20,6 +19,7 @@ class WhisperEngine {
     private var contextPtr: Long = 0L
     private var loadedModelPath: String? = null
     private val isRunning = AtomicBoolean(false)
+    private val isCancelled = AtomicBoolean(false)
     private val audioExecutor = Executors.newSingleThreadExecutor()
 
     fun isModelLoaded(): Boolean = contextPtr != 0L
@@ -89,6 +89,7 @@ class WhisperEngine {
         }
 
         isRunning.set(true)
+        isCancelled.set(false)
         val language = normalizeLanguageTag(config?.languageTag)
         val numThreads = minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
 
@@ -143,21 +144,25 @@ class WhisperEngine {
                     }
                 }
 
-                // Process remaining audio in buffer at the end of session
-                if (segmentBuffer.isNotEmpty() && segmentBuffer.size >= (SAMPLE_RATE * 0.3).toInt()) {
+                // Process remaining audio in buffer at the end of session (EOF from graceful stop)
+                if (!isCancelled.get() && segmentBuffer.isNotEmpty() && segmentBuffer.size >= (SAMPLE_RATE * 0.2).toInt()) {
                     transcribeAndEmit(segmentBuffer, language, numThreads, callback)
                     segmentBuffer.clear()
                 }
 
-                callback.onSessionEnded()
+                if (!isCancelled.get()) {
+                    callback.onSessionEnded()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Whisper audio loop error", e)
-                callback.onError(VoiceConstants.VOICE_ERROR_AUDIO_START_FAILED, e.message ?: "Audio processing error")
+                if (!isCancelled.get()) {
+                    callback.onError(VoiceConstants.VOICE_ERROR_AUDIO_START_FAILED, e.message ?: "Audio processing error")
+                }
             } finally {
                 isRunning.set(false)
                 try { inputStream?.close() } catch (_: Exception) {}
                 try { audioInput.close() } catch (_: Exception) {}
-                Log.i(TAG, "Whisper session ended. Total read: $totalReadBytes bytes")
+                Log.i(TAG, "Whisper session ended. Total read: $totalReadBytes bytes (cancelled=${isCancelled.get()})")
             }
         }
     }
@@ -168,7 +173,7 @@ class WhisperEngine {
         threads: Int,
         callback: IVoiceCallback
     ) {
-        if (contextPtr == 0L || samples.isEmpty()) return
+        if (isCancelled.get() || contextPtr == 0L || samples.isEmpty()) return
 
         val pcm = ShortArray(samples.size) { samples[it] }
 
@@ -188,7 +193,7 @@ class WhisperEngine {
         val floatPcm = FloatArray(pcm.size) { pcm[it] / 32768.0f }
         try {
             val text = WhisperNative.transcribe(contextPtr, floatPcm, language, threads).trim()
-            if (text.isNotBlank()) {
+            if (text.isNotBlank() && !isCancelled.get()) {
                 Log.i(TAG, "Whisper transcribed: '$text'")
                 callback.onFinal(text)
             }
@@ -198,6 +203,7 @@ class WhisperEngine {
     }
 
     fun cancelSession() {
+        isCancelled.set(true)
         isRunning.set(false)
     }
 

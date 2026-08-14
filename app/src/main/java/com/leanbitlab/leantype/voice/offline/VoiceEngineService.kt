@@ -142,8 +142,8 @@ class VoiceEngineService : Service() {
         }
 
         override fun stopSession() {
-            voskEngine.cancelSession()
-            whisperEngine.cancelSession()
+            // Graceful stop: Do not cancel engines.
+            // Closing the host's write-side PFD sends EOF, triggering graceful finalization in both engines.
             isSessionActive = false
         }
 
