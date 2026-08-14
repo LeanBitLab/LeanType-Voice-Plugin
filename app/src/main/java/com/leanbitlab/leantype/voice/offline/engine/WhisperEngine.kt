@@ -100,6 +100,7 @@ class WhisperEngine {
             var silenceFrames = 0
 
             try {
+                Log.i(TAG, "Dispatching callback.onSessionStarted")
                 callback.onSessionStarted()
                 inputStream = FileInputStream(audioInput.fileDescriptor)
                 val byteBuffer = ByteArray(FRAME_SIZE_BYTES)
@@ -108,7 +109,7 @@ class WhisperEngine {
                 while (isRunning.get()) {
                     val bytesRead = inputStream.read(byteBuffer)
                     if (bytesRead <= 0) {
-                        Log.i(TAG, "EOF reached on audio input stream ($bytesRead)")
+                        Log.i(TAG, "EOF reached on audio input stream ($bytesRead). Total read bytes: $totalReadBytes")
                         break
                     }
 
@@ -141,6 +142,7 @@ class WhisperEngine {
                     val reachedHardCap = segmentBuffer.size >= MAX_SEGMENT_SAMPLES
 
                     if (reachedSilence || reachedHardCap) {
+                        Log.i(TAG, "Segment trigger (silence=$reachedSilence, hardCap=$reachedHardCap, samples=${segmentBuffer.size})")
                         transcribeAndEmit(segmentBuffer, language, numThreads, callback)
                         segmentBuffer.clear()
                         silenceFrames = 0
@@ -148,6 +150,7 @@ class WhisperEngine {
                 }
 
                 // Process remaining audio in buffer at the end of session (EOF from graceful stop)
+                Log.i(TAG, "Processing remaining buffer at EOF (samples=${segmentBuffer.size}, isCancelled=${isCancelled.get()})")
                 if (!isCancelled.get() && segmentBuffer.isNotEmpty()) {
                     Log.i(TAG, "EOF flush: transcribing ${segmentBuffer.size} samples")
                     val text = transcribeAndEmit(segmentBuffer, language, numThreads, callback)
@@ -202,9 +205,10 @@ class WhisperEngine {
             sumSq += norm * norm
         }
         val segmentRms = sqrt(sumSq / pcm.size)
+        Log.i(TAG, "Segment samples: ${pcm.size}, RMS: $segmentRms (threshold: $SILENCE_RMS)")
 
         if (segmentRms < SILENCE_RMS) {
-            Log.d(TAG, "Skipping silent segment (RMS: $segmentRms < $SILENCE_RMS)")
+            Log.w(TAG, "RMS gate triggered! Audio discarded as silence (RMS: $segmentRms < $SILENCE_RMS)")
             if (!isCancelled.get()) {
                 try { callback.onFinal("") } catch (_: Exception) {}
             }
@@ -213,12 +217,14 @@ class WhisperEngine {
 
         val floatPcm = FloatArray(pcm.size) { pcm[it] / 32768.0f }
         return try {
-            val text = WhisperNative.transcribe(contextPtr, floatPcm, language, threads).trim()
+            val rawText = WhisperNative.transcribe(contextPtr, floatPcm, language, threads)
+            Log.i(TAG, "JNI transcribe returned: '$rawText'")
+            val finalText = rawText.trim()
             if (!isCancelled.get()) {
-                Log.i(TAG, "Whisper transcribed: '$text'")
-                callback.onFinal(text)
+                Log.i(TAG, "Emitting onFinal: '$finalText'")
+                callback.onFinal(finalText)
             }
-            text
+            finalText
         } catch (e: Exception) {
             Log.e(TAG, "Whisper transcription failed", e)
             ""
