@@ -95,9 +95,8 @@ class WhisperEngine {
 
         audioExecutor.execute {
             var inputStream: FileInputStream? = null
-            val segmentBuffer = ArrayList<Short>()
+            val utteranceBuffer = ArrayList<Short>()
             var totalReadBytes = 0L
-            var silenceFrames = 0
 
             try {
                 Log.i(TAG, "Dispatching callback.onSessionStarted")
@@ -106,6 +105,7 @@ class WhisperEngine {
                 val byteBuffer = ByteArray(FRAME_SIZE_BYTES)
                 val shortBuffer = ShortArray(FRAME_SIZE_BYTES / 2)
 
+                // Continuous non-blocking read loop: drains entire audio stream from host pipe
                 while (isRunning.get()) {
                     val bytesRead = inputStream.read(byteBuffer)
                     if (bytesRead <= 0) {
@@ -120,42 +120,17 @@ class WhisperEngine {
                         .get(shortBuffer, 0, bytesRead / 2)
 
                     for (i in 0 until bytesRead / 2) {
-                        segmentBuffer.add(shortBuffer[i])
-                    }
-
-                    // Compute short-term frame energy
-                    var frameSumSq = 0.0
-                    for (i in 0 until bytesRead / 2) {
-                        val norm = shortBuffer[i] / 32768.0
-                        frameSumSq += norm * norm
-                    }
-                    val frameRms = sqrt(frameSumSq / (bytesRead / 2))
-
-                    if (frameRms < SILENCE_RMS) {
-                        silenceFrames++
-                    } else {
-                        silenceFrames = 0
-                    }
-
-                    // Trigger transcription if silence detected after speech or hard duration cap reached
-                    val reachedSilence = silenceFrames >= VAD_SILENCE_FRAMES && segmentBuffer.size >= MIN_SEGMENT_SAMPLES
-                    val reachedHardCap = segmentBuffer.size >= MAX_SEGMENT_SAMPLES
-
-                    if (reachedSilence || reachedHardCap) {
-                        Log.i(TAG, "Segment trigger (silence=$reachedSilence, hardCap=$reachedHardCap, samples=${segmentBuffer.size})")
-                        transcribeAndEmit(segmentBuffer, language, numThreads, callback)
-                        segmentBuffer.clear()
-                        silenceFrames = 0
+                        utteranceBuffer.add(shortBuffer[i])
                     }
                 }
 
-                // Process remaining audio in buffer at the end of session (EOF from graceful stop)
-                Log.i(TAG, "Processing remaining buffer at EOF (samples=${segmentBuffer.size}, isCancelled=${isCancelled.get()})")
-                if (!isCancelled.get() && segmentBuffer.isNotEmpty()) {
-                    Log.i(TAG, "EOF flush: transcribing ${segmentBuffer.size} samples")
-                    val text = transcribeAndEmit(segmentBuffer, language, numThreads, callback)
+                // Process full speech utterance on EOF
+                Log.i(TAG, "Processing utterance on EOF (samples=${utteranceBuffer.size}, isCancelled=${isCancelled.get()})")
+                if (!isCancelled.get() && utteranceBuffer.isNotEmpty()) {
+                    Log.i(TAG, "EOF flush: transcribing ${utteranceBuffer.size} samples (%.2f sec)".format(utteranceBuffer.size / 16000.0))
+                    val text = transcribeAndEmit(utteranceBuffer, language, numThreads, callback)
                     Log.i(TAG, "EOF result: '$text'")
-                    segmentBuffer.clear()
+                    utteranceBuffer.clear()
                 } else if (!isCancelled.get()) {
                     Log.i(TAG, "EOF with empty buffer, emitting empty final")
                     try {
@@ -205,7 +180,7 @@ class WhisperEngine {
             sumSq += norm * norm
         }
         val segmentRms = sqrt(sumSq / pcm.size)
-        Log.i(TAG, "Segment samples: ${pcm.size}, RMS: $segmentRms (threshold: $SILENCE_RMS)")
+        Log.i(TAG, "Utterance samples: ${pcm.size}, RMS: $segmentRms (threshold: $SILENCE_RMS)")
 
         if (segmentRms < SILENCE_RMS) {
             Log.w(TAG, "RMS gate triggered! Audio discarded as silence (RMS: $segmentRms < $SILENCE_RMS)")
@@ -246,9 +221,6 @@ class WhisperEngine {
         private const val TAG = "WhisperEngine"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz 16-bit mono
-        private const val MIN_SEGMENT_SAMPLES = SAMPLE_RATE * 1 // 1.0 second minimum
-        private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 8 // 8.0 seconds hard cap
-        private const val VAD_SILENCE_FRAMES = 15 // ~450ms silence hangover
-        private const val SILENCE_RMS = 0.01f // Tunable silence threshold for hallucination gating
+        private const val SILENCE_RMS = 0.005f // Low threshold to prevent dropping quiet speech
     }
 }

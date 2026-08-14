@@ -84,7 +84,7 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.n_threads = threads > 0 ? threads : 4;
-    params.single_segment = true;
+    params.single_segment = false;
     params.no_context = true;
     params.no_timestamps = true;
     params.temperature_inc = 0.0f;
@@ -92,6 +92,8 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
     params.print_progress = false;
     params.print_timestamps = false;
     params.print_special = false;
+    params.suppress_blank = true;
+    params.suppress_nst = true;
 
     const bool is_multilingual = whisper_is_multilingual(ctx) != 0;
     const char *lang_str = nullptr;
@@ -112,8 +114,8 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
         params.detect_language = false;
     }
 
-    LOGI("Starting whisper_full: samples=%d, language=%s, is_multilingual=%d, threads=%d",
-         len, params.language, is_multilingual, params.n_threads);
+    LOGI("Starting whisper_full: samples=%d (%.2f sec), language=%s, is_multilingual=%d, threads=%d",
+         len, (float)len / 16000.0f, params.language, is_multilingual, params.n_threads);
 
     int ret = whisper_full(ctx, params, samples, len);
 
@@ -135,7 +137,11 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
     for (int i = 0; i < n_segments; ++i) {
         const char *text = whisper_full_get_segment_text(ctx, i);
         if (text != nullptr) {
-            result += text;
+            std::string s(text);
+            if (s.find("[BLANK_AUDIO]") == std::string::npos &&
+                s.find("(blank audio)") == std::string::npos) {
+                result += s;
+            }
         }
     }
     LOGI("whisper_full accumulated result: '%s'", result.c_str());
