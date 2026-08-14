@@ -35,7 +35,7 @@ class ModelManager(
                 ModelState(engineType, ModelState.STATE_ERROR, "Invalid Vosk model directory")
             }
         } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
-            if (isValidWhisperModel(targetFile)) {
+            if (isWhisperHeaderValid(targetFile)) {
                 ModelState(engineType, ModelState.STATE_READY, "Model loaded")
             } else {
                 ModelState(engineType, ModelState.STATE_ERROR, "Not a valid Whisper ASR model")
@@ -52,7 +52,7 @@ class ModelManager(
         return if (engineType == VoiceConstants.ENGINE_VOSK) {
             targetFile.isDirectory && (targetFile.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)
         } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
-            isValidWhisperModel(targetFile)
+            isWhisperHeaderValid(targetFile)
         } else {
             false
         }
@@ -87,7 +87,7 @@ class ModelManager(
             return if (targetEngine == VoiceConstants.ENGINE_VOSK) {
                 extractVoskModel(tmpFile, modelsDir)
             } else if (targetEngine == VoiceConstants.ENGINE_WHISPER) {
-                if (!isValidWhisperModel(tmpFile)) {
+                if (!validateWhisperModelOnImport(tmpFile)) {
                     Log.e(TAG, "Imported file is not a valid Whisper model")
                     tmpFile.delete()
                     return false
@@ -141,29 +141,34 @@ class ModelManager(
         return targetDir.deleteRecursively()
     }
 
-    private fun isValidWhisperModel(file: File): Boolean {
+    private fun isWhisperHeaderValid(file: File): Boolean {
         if (!file.exists() || file.length() < 1024) return false
 
-        // Check magic header: GGUF ("GGUF" / 0x46554747) or GGML ("ggml" / 0x67676d6c)
-        try {
+        // Fast magic header check (no JNI, no full model load)
+        return try {
             FileInputStream(file).use { fis ->
                 val header = ByteArray(4)
                 val read = fis.read(header)
                 if (read < 4) return false
+                val isGguf = header[0] == 0x47.toByte() && header[1] == 0x47.toByte() &&
+                        header[2] == 0x55.toByte() && header[3] == 0x46.toByte()
                 val magic = String(header, Charsets.US_ASCII)
-                val isGguf = magic == "GGUF"
-                val isGgml = magic == "ggml" || magic == "lmgg" || magic == "ggmf"
-                if (!isGguf && !isGgml) {
-                    Log.w(TAG, "File magic '$magic' does not match GGUF/GGML format")
-                    return false
-                }
+                val isGgml = magic == "ggml" || magic == "lmgg" || magic == "ggmf" || file.name.startsWith("ggml-")
+                isGguf || isGgml
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking file magic", e)
+            Log.e(TAG, "Error checking whisper file header", e)
+            false
+        }
+    }
+
+    private fun validateWhisperModelOnImport(file: File): Boolean {
+        if (!isWhisperHeaderValid(file)) {
+            Log.w(TAG, "File header validation failed for: ${file.name}")
             return false
         }
 
-        // Test load via native bridge if loaded
+        // Run full native test load once upon import
         if (WhisperNative.isNativeLoaded()) {
             return try {
                 val ptr = WhisperNative.init(file.absolutePath)
@@ -171,15 +176,14 @@ class ModelManager(
                     WhisperNative.free(ptr)
                     true
                 } else {
-                    Log.w(TAG, "WhisperNative.init test failed for: ${file.name}")
+                    Log.w(TAG, "WhisperNative.init test load failed for: ${file.name}")
                     false
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Exception during WhisperNative validation", e)
+                Log.e(TAG, "Exception during WhisperNative import validation", e)
                 false
             }
         }
-
         return true
     }
 
