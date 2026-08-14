@@ -10,7 +10,6 @@ import org.vosk.Model
 import org.vosk.Recognizer
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
 class VoskEngine(private val context: Context) {
 
@@ -25,6 +24,8 @@ class VoskEngine(private val context: Context) {
     @Volatile
     private var activePfd: ParcelFileDescriptor? = null
 
+    fun isModelLoaded(): Boolean = model != null
+
     fun loadModel(modelDir: File): Boolean {
         return try {
             if (!modelDir.exists()) return false
@@ -34,6 +35,15 @@ class VoskEngine(private val context: Context) {
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    fun createRecognizer(): Recognizer? {
+        val currentModel = model ?: return null
+        return try {
+            Recognizer(currentModel, 16000f)
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -70,7 +80,7 @@ class VoskEngine(private val context: Context) {
                             isFirstRead = false
                             val sample0 = java.nio.ByteBuffer.wrap(buffer, 0, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short
                             val sample1 = java.nio.ByteBuffer.wrap(buffer, 2, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short
-                            android.util.Log.i("VoskEngine", "First audio samples: s0=$sample0, s1=$sample1 (0 means mic is muted/silence)")
+                            android.util.Log.i("VoskEngine", "First audio samples: s0=$sample0, s1=$sample1")
                         }
 
                         if (totalRead % 32000L < bytesRead) {
@@ -137,7 +147,7 @@ class VoskEngine(private val context: Context) {
         audioExecutor.shutdownNow()
     }
 
-    private fun parseJsonText(jsonStr: String?, key: String): String {
+    fun parseJsonText(jsonStr: String?, key: String): String {
         if (jsonStr.isNullOrBlank()) return ""
         return try {
             val json = JSONObject(jsonStr)

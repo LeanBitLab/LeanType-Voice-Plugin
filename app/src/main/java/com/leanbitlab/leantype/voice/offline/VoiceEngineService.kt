@@ -13,6 +13,7 @@ import com.leanbitlab.leantype.voice.ModelState
 import com.leanbitlab.leantype.voice.VoiceConstants
 import com.leanbitlab.leantype.voice.VoiceEngineInfo
 import com.leanbitlab.leantype.voice.VoiceSessionConfig
+import com.leanbitlab.leantype.voice.offline.engine.HybridEngine
 import com.leanbitlab.leantype.voice.offline.engine.VoskEngine
 import com.leanbitlab.leantype.voice.offline.engine.WhisperEngine
 import com.leanbitlab.leantype.voice.offline.model.ModelManager
@@ -22,9 +23,8 @@ class VoiceEngineService : Service() {
     private lateinit var modelManager: ModelManager
     private lateinit var voskEngine: VoskEngine
     private lateinit var whisperEngine: WhisperEngine
-
-    @Volatile
-    private var isSessionActive = false
+    private lateinit var hybridEngine: HybridEngine
+    @Volatile private var isSessionActive = false
 
     private val binder = object : IVoiceEngine.Stub() {
 
@@ -75,10 +75,12 @@ class VoiceEngineService : Service() {
             if (isSessionActive) {
                 voskEngine.cancelSession()
                 whisperEngine.cancelSession()
+                hybridEngine.cancelSession()
                 isSessionActive = false
             }
 
             val mode = config?.mode ?: VoiceConstants.MODE_FAST
+            Log.i(TAG, "Starting session with mode: $mode (active=$isSessionActive)")
 
             val wrappedCallback = object : IVoiceCallback.Stub() {
                 override fun onSessionStarted() {
@@ -121,8 +123,27 @@ class VoiceEngineService : Service() {
 
                 isSessionActive = true
                 whisperEngine.startSession(audioInput, wrappedCallback, config)
+            } else if (mode == VoiceConstants.MODE_HYBRID) {
+                val voskModelDir = modelManager.getModelDir(VoiceConstants.ENGINE_VOSK)
+                val whisperModelFile = modelManager.getModelDir(VoiceConstants.ENGINE_WHISPER)
+
+                if (!modelManager.isModelReady(VoiceConstants.ENGINE_VOSK) ||
+                    !modelManager.isModelReady(VoiceConstants.ENGINE_WHISPER)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_MISSING, "Vosk and Whisper models required for Hybrid mode")
+                    return
+                }
+
+                if (!voskEngine.loadModel(voskModelDir) || !whisperEngine.loadModel(whisperModelFile)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_INVALID, "Failed to initialize models for Hybrid mode")
+                    return
+                }
+
+                isSessionActive = true
+                hybridEngine.startSession(audioInput, wrappedCallback, config)
             } else {
-                // MODE_FAST or fallback for MODE_HYBRID (until Phase 2.3)
+                // MODE_FAST
                 val voskModelDir = modelManager.getModelDir(VoiceConstants.ENGINE_VOSK)
                 if (!modelManager.isModelReady(VoiceConstants.ENGINE_VOSK)) {
                     try { audioInput.close() } catch (_: Exception) {}
@@ -142,20 +163,21 @@ class VoiceEngineService : Service() {
         }
 
         override fun stopSession() {
-            // Graceful stop: Do not cancel engines.
-            // Closing the host's write-side PFD sends EOF, triggering graceful finalization in both engines.
+            // Graceful stop: Host closing pipe sends EOF, triggering final flush in engines
             isSessionActive = false
         }
 
         override fun cancelSession() {
             voskEngine.cancelSession()
             whisperEngine.cancelSession()
+            hybridEngine.cancelSession()
             isSessionActive = false
         }
 
         override fun release() {
             voskEngine.release()
             whisperEngine.releaseContext()
+            hybridEngine.release()
             isSessionActive = false
         }
     }
@@ -164,6 +186,7 @@ class VoiceEngineService : Service() {
         super.onCreate()
         whisperEngine = WhisperEngine()
         voskEngine = VoskEngine(applicationContext)
+        hybridEngine = HybridEngine(voskEngine, whisperEngine)
         modelManager = ModelManager(applicationContext) { engineType ->
             if (engineType == VoiceConstants.ENGINE_WHISPER) {
                 whisperEngine.releaseContext()
@@ -179,6 +202,7 @@ class VoiceEngineService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        hybridEngine.release()
         voskEngine.destroy()
         whisperEngine.releaseContext()
     }

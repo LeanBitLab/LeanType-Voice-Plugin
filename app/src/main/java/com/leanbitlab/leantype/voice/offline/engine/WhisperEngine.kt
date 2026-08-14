@@ -20,7 +20,9 @@ class WhisperEngine {
     private var loadedModelPath: String? = null
     private val isRunning = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
-    private val audioExecutor = Executors.newSingleThreadExecutor()
+    private val audioExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "WhisperAudioThread").apply { isDaemon = true }
+    }
 
     fun isModelLoaded(): Boolean = contextPtr != 0L
 
@@ -74,6 +76,33 @@ class WhisperEngine {
                 contextPtr = 0L
                 loadedModelPath = null
             }
+        }
+    }
+
+    fun transcribeSync(samples: List<Short>, language: String?): String {
+        if (contextPtr == 0L || samples.isEmpty()) return ""
+        val pcm = ShortArray(samples.size) { samples[it] }
+
+        var sumSq = 0.0
+        for (s in pcm) {
+            val norm = s / 32768.0
+            sumSq += norm * norm
+        }
+        val segmentRms = sqrt(sumSq / pcm.size)
+        if (segmentRms < SILENCE_RMS) {
+            Log.d(TAG, "transcribeSync: RMS $segmentRms below threshold $SILENCE_RMS")
+            return ""
+        }
+
+        val floatPcm = FloatArray(pcm.size) { pcm[it] / 32768.0f }
+        val numThreads = minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
+        val lang = normalizeLanguageTag(language)
+        return try {
+            val raw = WhisperNative.transcribe(contextPtr, floatPcm, lang, numThreads)
+            raw.trim()
+        } catch (e: Exception) {
+            Log.e(TAG, "transcribeSync failed", e)
+            ""
         }
     }
 
