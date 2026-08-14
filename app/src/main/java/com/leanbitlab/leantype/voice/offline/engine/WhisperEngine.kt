@@ -107,7 +107,10 @@ class WhisperEngine {
 
                 while (isRunning.get()) {
                     val bytesRead = inputStream.read(byteBuffer)
-                    if (bytesRead <= 0) break
+                    if (bytesRead <= 0) {
+                        Log.i(TAG, "EOF reached on audio input stream ($bytesRead)")
+                        break
+                    }
 
                     totalReadBytes += bytesRead
                     ByteBuffer.wrap(byteBuffer, 0, bytesRead)
@@ -145,24 +148,39 @@ class WhisperEngine {
                 }
 
                 // Process remaining audio in buffer at the end of session (EOF from graceful stop)
-                if (!isCancelled.get() && segmentBuffer.isNotEmpty() && segmentBuffer.size >= (SAMPLE_RATE * 0.2).toInt()) {
-                    transcribeAndEmit(segmentBuffer, language, numThreads, callback)
+                if (!isCancelled.get() && segmentBuffer.isNotEmpty()) {
+                    Log.i(TAG, "EOF flush: transcribing ${segmentBuffer.size} samples")
+                    val text = transcribeAndEmit(segmentBuffer, language, numThreads, callback)
+                    Log.i(TAG, "EOF result: '$text'")
                     segmentBuffer.clear()
-                }
-
-                if (!isCancelled.get()) {
-                    callback.onSessionEnded()
+                } else if (!isCancelled.get()) {
+                    Log.i(TAG, "EOF with empty buffer, emitting empty final")
+                    try {
+                        callback.onFinal("")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Remote exception during empty onFinal", e)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Whisper audio loop error", e)
                 if (!isCancelled.get()) {
-                    callback.onError(VoiceConstants.VOICE_ERROR_AUDIO_START_FAILED, e.message ?: "Audio processing error")
+                    try {
+                        callback.onError(VoiceConstants.VOICE_ERROR_AUDIO_START_FAILED, e.message ?: "Audio processing error")
+                    } catch (_: Exception) {}
                 }
             } finally {
                 isRunning.set(false)
+                if (!isCancelled.get()) {
+                    try {
+                        Log.i(TAG, "Emitting onSessionEnded")
+                        callback.onSessionEnded()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Remote exception during onSessionEnded", e)
+                    }
+                }
                 try { inputStream?.close() } catch (_: Exception) {}
                 try { audioInput.close() } catch (_: Exception) {}
-                Log.i(TAG, "Whisper session ended. Total read: $totalReadBytes bytes (cancelled=${isCancelled.get()})")
+                Log.i(TAG, "Whisper session finished. Total read: $totalReadBytes bytes (cancelled=${isCancelled.get()})")
             }
         }
     }
@@ -172,8 +190,8 @@ class WhisperEngine {
         language: String?,
         threads: Int,
         callback: IVoiceCallback
-    ) {
-        if (isCancelled.get() || contextPtr == 0L || samples.isEmpty()) return
+    ): String {
+        if (isCancelled.get() || contextPtr == 0L || samples.isEmpty()) return ""
 
         val pcm = ShortArray(samples.size) { samples[it] }
 
@@ -187,18 +205,23 @@ class WhisperEngine {
 
         if (segmentRms < SILENCE_RMS) {
             Log.d(TAG, "Skipping silent segment (RMS: $segmentRms < $SILENCE_RMS)")
-            return
+            if (!isCancelled.get()) {
+                try { callback.onFinal("") } catch (_: Exception) {}
+            }
+            return ""
         }
 
         val floatPcm = FloatArray(pcm.size) { pcm[it] / 32768.0f }
-        try {
+        return try {
             val text = WhisperNative.transcribe(contextPtr, floatPcm, language, threads).trim()
-            if (text.isNotBlank() && !isCancelled.get()) {
+            if (!isCancelled.get()) {
                 Log.i(TAG, "Whisper transcribed: '$text'")
                 callback.onFinal(text)
             }
+            text
         } catch (e: Exception) {
             Log.e(TAG, "Whisper transcription failed", e)
+            ""
         }
     }
 
