@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: GPL-3.0-only
+package com.leanbitlab.leantype.voice
+
+import android.os.ParcelFileDescriptor
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
+data class VoiceEngineInfo(
+    val contractVersion: Int,
+    val pluginId: String,
+    val displayName: String,
+    val supportsVosk: Boolean,
+    val supportsWhisper: Boolean,
+    val supportsHybrid: Boolean
+) : Parcelable
+
+@Parcelize
+data class ModelState(
+    val engineType: String,
+    val state: Int,
+    val message: String?
+) : Parcelable {
+    companion object {
+        const val STATE_MISSING = 0
+        const val STATE_LOADING = 1
+        const val STATE_READY = 2
+        const val STATE_ERROR = 3
+    }
+}
+
+@Parcelize
+data class ModelImportRequest(
+    val engineType: String,
+    val language: String?,
+    val sha256: String?,
+    val sizeBytes: Long,
+    val file: ParcelFileDescriptor
+) : Parcelable
+
+@Parcelize
+data class VoiceSessionConfig(
+    val sessionId: String,
+    val mode: String,
+    val languageTag: String?,
+    val sampleRate: Int,
+    val enablePartial: Boolean,
+    val maxSegmentMs: Int,
+    val hybridTimeoutMs: Int,
+    val hybridFallbackToVosk: Boolean
+) : Parcelable
+
+object VoiceConstants {
+    const val VOICE_CONTRACT_VERSION = 1
+
+    const val ENGINE_VOSK = "vosk"
+    const val ENGINE_WHISPER = "whisper"
+
+    const val MODE_FAST = "FAST"
+    const val MODE_ACCURATE = "ACCURATE"
+    const val MODE_HYBRID = "HYBRID"
+
+    const val VOICE_ERROR_MODEL_MISSING = 1001
+    const val VOICE_ERROR_MODEL_LOADING = 1002
+    const val VOICE_ERROR_MODEL_INVALID = 1003
+    const val VOICE_ERROR_AUDIO_START_FAILED = 1004
+    const val VOICE_ERROR_PLUGIN_CRASHED = 1005
+    const val VOICE_ERROR_TIMEOUT = 1006
+    const val VOICE_ERROR_CANCELLED = 1007
+    const val VOICE_ERROR_UNKNOWN = 1008
+
+    const val PREF_VOICE_OFFLINE_ENABLED = "voice_offline_enabled"
+    const val PREF_VOICE_MODE = "voice_mode"
+    const val PREF_VOICE_HYBRID_TIMEOUT_MS = "voice_hybrid_timeout_ms"
+    const val PREF_VOICE_HYBRID_FALLBACK = "voice_hybrid_fallback"
+    const val PREF_VOICE_WHISPER_KEEP_LOADED_SECONDS = "voice_whisper_keep_loaded_seconds"
+    const val PREF_VOICE_ADVANCED_VAD = "voice_advanced_vad"
+    const val PREF_USE_DEBUG_VOICE_STUB = "use_debug_voice_stub"
+}
