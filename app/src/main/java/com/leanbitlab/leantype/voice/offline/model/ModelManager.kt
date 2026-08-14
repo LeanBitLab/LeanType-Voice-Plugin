@@ -3,32 +3,59 @@ package com.leanbitlab.leantype.voice.offline.model
 
 import android.content.Context
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import com.leanbitlab.leantype.voice.ModelImportRequest
 import com.leanbitlab.leantype.voice.ModelState
 import com.leanbitlab.leantype.voice.VoiceConstants
+import com.leanbitlab.leantype.voice.offline.engine.WhisperNative
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
-class ModelManager(private val context: Context) {
+class ModelManager(
+    private val context: Context,
+    private val onPreDeleteModel: ((engineType: String) -> Unit)? = null
+) {
 
     private val modelsDir: File
         get() = File(context.filesDir, "models").apply { if (!exists()) mkdirs() }
 
     fun getModelState(engineType: String): ModelState {
-        val targetDir = File(modelsDir, engineType)
-        return if (targetDir.exists() && isModelDirectoryValid(engineType, targetDir)) {
-            ModelState(engineType, ModelState.STATE_READY, "Model loaded")
+        val targetFile = File(modelsDir, engineType)
+        if (!targetFile.exists()) {
+            return ModelState(engineType, ModelState.STATE_MISSING, "Model not imported")
+        }
+
+        return if (engineType == VoiceConstants.ENGINE_VOSK) {
+            if (targetFile.isDirectory && (targetFile.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)) {
+                ModelState(engineType, ModelState.STATE_READY, "Model loaded")
+            } else {
+                ModelState(engineType, ModelState.STATE_ERROR, "Invalid Vosk model directory")
+            }
+        } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
+            if (isValidWhisperModel(targetFile)) {
+                ModelState(engineType, ModelState.STATE_READY, "Model loaded")
+            } else {
+                ModelState(engineType, ModelState.STATE_ERROR, "Not a valid Whisper ASR model")
+            }
         } else {
-            ModelState(engineType, ModelState.STATE_MISSING, "Model not imported")
+            ModelState(engineType, ModelState.STATE_MISSING, "Unknown engine")
         }
     }
 
     fun isModelReady(engineType: String): Boolean {
-        val targetDir = File(modelsDir, engineType)
-        return targetDir.exists() && isModelDirectoryValid(engineType, targetDir)
+        val targetFile = File(modelsDir, engineType)
+        if (!targetFile.exists()) return false
+
+        return if (engineType == VoiceConstants.ENGINE_VOSK) {
+            targetFile.isDirectory && (targetFile.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)
+        } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
+            isValidWhisperModel(targetFile)
+        } else {
+            false
+        }
     }
 
     fun getModelDir(engineType: String): File {
@@ -37,47 +64,50 @@ class ModelManager(private val context: Context) {
 
     fun importModelSafely(request: ModelImportRequest): Boolean {
         val targetEngine = request.engineType
-        val tmpZip = File(modelsDir, "${targetEngine}_${System.currentTimeMillis()}.tmp")
+        val tmpFile = File(modelsDir, "${targetEngine}_${System.currentTimeMillis()}.tmp")
 
-        val isDebuggable = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         try {
-            if (isDebuggable) {
-                android.util.Log.i("ModelManager", "Starting model import for $targetEngine, size: ${request.sizeBytes} bytes")
-            }
+            Log.i(TAG, "Starting model import for $targetEngine, size: ${request.sizeBytes} bytes")
             ParcelFileDescriptor.AutoCloseInputStream(request.file).use { input ->
-                FileOutputStream(tmpZip).use { output ->
-                    val copied = input.copyTo(output)
-                    if (isDebuggable) {
-                        android.util.Log.i("ModelManager", "Copied $copied bytes to temp file ${tmpZip.name}")
-                    }
+                FileOutputStream(tmpFile).use { output ->
+                    input.copyTo(output)
                 }
             }
 
             val sha256 = request.sha256
-            if (sha256 != null && !verifySha256(tmpZip, sha256)) {
-                android.util.Log.e("ModelManager", "SHA256 verification failed")
-                tmpZip.delete()
+            if (sha256 != null && !verifySha256(tmpFile, sha256)) {
+                Log.e(TAG, "SHA256 verification failed for $targetEngine")
+                tmpFile.delete()
                 return false
             }
 
+            // Release any in-flight context before overwriting model file
+            onPreDeleteModel?.invoke(targetEngine)
+
             return if (targetEngine == VoiceConstants.ENGINE_VOSK) {
-                val success = extractVoskModel(tmpZip, modelsDir)
-                if (isDebuggable) {
-                    android.util.Log.i("ModelManager", "Vosk model extraction success: $success")
+                extractVoskModel(tmpFile, modelsDir)
+            } else if (targetEngine == VoiceConstants.ENGINE_WHISPER) {
+                if (!isValidWhisperModel(tmpFile)) {
+                    Log.e(TAG, "Imported file is not a valid Whisper model")
+                    tmpFile.delete()
+                    return false
                 }
-                success
-            } else {
                 val finalFile = File(modelsDir, targetEngine)
                 finalFile.deleteRecursively()
-                val success = tmpZip.renameTo(finalFile)
-                if (isDebuggable) {
-                    android.util.Log.i("ModelManager", "Whisper model rename success: $success")
+                val success = tmpFile.renameTo(finalFile)
+                if (!success) {
+                    tmpFile.copyTo(finalFile, overwrite = true)
+                    tmpFile.delete()
                 }
-                success
+                Log.i(TAG, "Whisper model installed successfully: ${finalFile.absolutePath}")
+                true
+            } else {
+                tmpFile.delete()
+                false
             }
         } catch (e: Exception) {
-            android.util.Log.e("ModelManager", "Failed to import model", e)
-            tmpZip.delete()
+            Log.e(TAG, "Failed to import model for $targetEngine", e)
+            tmpFile.delete()
             return false
         }
     }
@@ -97,6 +127,7 @@ class ModelManager(private val context: Context) {
             }
             return true
         } catch (e: Exception) {
+            Log.e(TAG, "Error extracting Vosk model", e)
             return false
         } finally {
             extractTmp.deleteRecursively()
@@ -105,8 +136,51 @@ class ModelManager(private val context: Context) {
     }
 
     fun deleteModel(engineType: String): Boolean {
+        onPreDeleteModel?.invoke(engineType)
         val targetDir = File(modelsDir, engineType)
         return targetDir.deleteRecursively()
+    }
+
+    private fun isValidWhisperModel(file: File): Boolean {
+        if (!file.exists() || file.length() < 1024) return false
+
+        // Check magic header: GGUF ("GGUF" / 0x46554747) or GGML ("ggml" / 0x67676d6c)
+        try {
+            FileInputStream(file).use { fis ->
+                val header = ByteArray(4)
+                val read = fis.read(header)
+                if (read < 4) return false
+                val magic = String(header, Charsets.US_ASCII)
+                val isGguf = magic == "GGUF"
+                val isGgml = magic == "ggml" || magic == "lmgg" || magic == "ggmf"
+                if (!isGguf && !isGgml) {
+                    Log.w(TAG, "File magic '$magic' does not match GGUF/GGML format")
+                    return false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking file magic", e)
+            return false
+        }
+
+        // Test load via native bridge if loaded
+        if (WhisperNative.isNativeLoaded()) {
+            return try {
+                val ptr = WhisperNative.init(file.absolutePath)
+                if (ptr != 0L) {
+                    WhisperNative.free(ptr)
+                    true
+                } else {
+                    Log.w(TAG, "WhisperNative.init test failed for: ${file.name}")
+                    false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception during WhisperNative validation", e)
+                false
+            }
+        }
+
+        return true
     }
 
     private fun safeUnzip(zipFile: File, targetDir: File) {
@@ -149,14 +223,6 @@ class ModelManager(private val context: Context) {
         return null
     }
 
-    private fun isModelDirectoryValid(engineType: String, dir: File): Boolean {
-        return if (engineType == VoiceConstants.ENGINE_VOSK) {
-            dir.isDirectory && (dir.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)
-        } else {
-            dir.exists() && dir.length() > 0
-        }
-    }
-
     private fun verifySha256(file: File, expectedHash: String): Boolean {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -173,5 +239,9 @@ class ModelManager(private val context: Context) {
         } catch (e: Exception) {
             false
         }
+    }
+
+    companion object {
+        private const val TAG = "ModelManager"
     }
 }

@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import com.leanbitlab.leantype.voice.IVoiceCallback
 import com.leanbitlab.leantype.voice.IVoiceEngine
 import com.leanbitlab.leantype.voice.ModelImportRequest
@@ -13,12 +14,14 @@ import com.leanbitlab.leantype.voice.VoiceConstants
 import com.leanbitlab.leantype.voice.VoiceEngineInfo
 import com.leanbitlab.leantype.voice.VoiceSessionConfig
 import com.leanbitlab.leantype.voice.offline.engine.VoskEngine
+import com.leanbitlab.leantype.voice.offline.engine.WhisperEngine
 import com.leanbitlab.leantype.voice.offline.model.ModelManager
 
 class VoiceEngineService : Service() {
 
     private lateinit var modelManager: ModelManager
     private lateinit var voskEngine: VoskEngine
+    private lateinit var whisperEngine: WhisperEngine
 
     @Volatile
     private var isSessionActive = false
@@ -51,6 +54,8 @@ class VoiceEngineService : Service() {
             val type = engineType ?: VoiceConstants.ENGINE_VOSK
             if (type == VoiceConstants.ENGINE_VOSK) {
                 voskEngine.release()
+            } else if (type == VoiceConstants.ENGINE_WHISPER) {
+                whisperEngine.releaseContext()
             }
         }
 
@@ -69,24 +74,11 @@ class VoiceEngineService : Service() {
 
             if (isSessionActive) {
                 voskEngine.cancelSession()
+                whisperEngine.cancelSession()
                 isSessionActive = false
             }
 
-            val voskModelDir = modelManager.getModelDir(VoiceConstants.ENGINE_VOSK)
-
-            if (!modelManager.isModelReady(VoiceConstants.ENGINE_VOSK)) {
-                try { audioInput.close() } catch (_: Exception) {}
-                callback.onError(VoiceConstants.VOICE_ERROR_MODEL_MISSING, "Vosk model not ready")
-                return
-            }
-
-            if (!voskEngine.loadModel(voskModelDir)) {
-                try { audioInput.close() } catch (_: Exception) {}
-                callback.onError(VoiceConstants.VOICE_ERROR_MODEL_MISSING, "Failed to initialize Vosk model")
-                return
-            }
-
-            isSessionActive = true
+            val mode = config?.mode ?: VoiceConstants.MODE_FAST
 
             val wrappedCallback = object : IVoiceCallback.Stub() {
                 override fun onSessionStarted() {
@@ -113,29 +105,72 @@ class VoiceEngineService : Service() {
                 }
             }
 
-            voskEngine.startSession(audioInput, wrappedCallback)
+            if (mode == VoiceConstants.MODE_ACCURATE) {
+                val whisperModelFile = modelManager.getModelDir(VoiceConstants.ENGINE_WHISPER)
+                if (!modelManager.isModelReady(VoiceConstants.ENGINE_WHISPER)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_MISSING, "Whisper model not ready")
+                    return
+                }
+
+                if (!whisperEngine.loadModel(whisperModelFile)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_INVALID, "Failed to initialize Whisper model")
+                    return
+                }
+
+                isSessionActive = true
+                whisperEngine.startSession(audioInput, wrappedCallback, config)
+            } else {
+                // MODE_FAST or fallback for MODE_HYBRID (until Phase 2.3)
+                val voskModelDir = modelManager.getModelDir(VoiceConstants.ENGINE_VOSK)
+                if (!modelManager.isModelReady(VoiceConstants.ENGINE_VOSK)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_MISSING, "Vosk model not ready")
+                    return
+                }
+
+                if (!voskEngine.loadModel(voskModelDir)) {
+                    try { audioInput.close() } catch (_: Exception) {}
+                    callback.onError(VoiceConstants.VOICE_ERROR_MODEL_INVALID, "Failed to initialize Vosk model")
+                    return
+                }
+
+                isSessionActive = true
+                voskEngine.startSession(audioInput, wrappedCallback)
+            }
         }
 
         override fun stopSession() {
             voskEngine.cancelSession()
+            whisperEngine.cancelSession()
             isSessionActive = false
         }
 
         override fun cancelSession() {
             voskEngine.cancelSession()
+            whisperEngine.cancelSession()
             isSessionActive = false
         }
 
         override fun release() {
             voskEngine.release()
+            whisperEngine.releaseContext()
             isSessionActive = false
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        modelManager = ModelManager(applicationContext)
+        whisperEngine = WhisperEngine()
         voskEngine = VoskEngine(applicationContext)
+        modelManager = ModelManager(applicationContext) { engineType ->
+            if (engineType == VoiceConstants.ENGINE_WHISPER) {
+                whisperEngine.releaseContext()
+            } else if (engineType == VoiceConstants.ENGINE_VOSK) {
+                voskEngine.release()
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -145,5 +180,10 @@ class VoiceEngineService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         voskEngine.destroy()
+        whisperEngine.releaseContext()
+    }
+
+    companion object {
+        private const val TAG = "VoiceEngineService"
     }
 }

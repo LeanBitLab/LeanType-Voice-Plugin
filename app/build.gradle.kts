@@ -31,6 +31,28 @@ android {
         aidl = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    buildTypes {
+        debug {
+            ndk {
+                abiFilters.clear()
+                abiFilters += "arm64-v8a"
+            }
+        }
+        release {
+            isMinifyEnabled = false
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
+        }
+    }
+
     applicationVariants.all {
         outputs.all {
             val output = this as? com.android.build.gradle.api.ApkVariantOutput
