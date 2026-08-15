@@ -26,6 +26,7 @@ class HybridEngine(
     private val isRunning = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
     private val isRefining = AtomicBoolean(false)
+    private val awaitNewFrame = AtomicBoolean(false)
 
     // Pre-allocated frame short buffer (up to 100ms at 16kHz) to guarantee zero heap allocations in audio loop
     private val pcmFrameBuffer = ShortArray(FRAME_BUFFER_MAX_SAMPLES)
@@ -44,6 +45,7 @@ class HybridEngine(
         isRunning.set(true)
         isCancelled.set(false)
         isRefining.set(false)
+        awaitNewFrame.set(false)
         val language = config?.languageTag
 
         audioExecutor.execute {
@@ -91,8 +93,10 @@ class HybridEngine(
                         voskEngine.parseJsonText(recognizer.partialResult, "partial")
                     }
 
-                    // Suppress partial emissions while Whisper refinement is in-flight
-                    if (partial.isNotBlank() && partial != lastEmittedPartial && !isCancelled.get() && !isRefining.get()) {
+                    // Suppress partial emissions while Whisper refinement is in-flight or on immediate next frame
+                    if (awaitNewFrame.getAndSet(false)) {
+                        // Skip emitting partial on immediate first frame after refinement to let host commit onFinal
+                    } else if (partial.isNotBlank() && partial != lastEmittedPartial && !isCancelled.get() && !isRefining.get()) {
                         lastEmittedPartial = partial
                         voskAccumulatedPartial = partial
                         Log.i(TAG, "Emitting Vosk partial: '$partial'")
@@ -172,6 +176,7 @@ class HybridEngine(
                                 recognizer.reset()
                                 voskAccumulatedPartial = ""
                                 lastEmittedPartial = ""
+                                awaitNewFrame.set(true)
                                 isRefining.set(false)
                             }
 
@@ -203,6 +208,7 @@ class HybridEngine(
                         recognizer?.reset()
                         voskAccumulatedPartial = ""
                         lastEmittedPartial = ""
+                        awaitNewFrame.set(true)
                         isRefining.set(false)
                     }
                     segmentBuffer.clear()
@@ -219,6 +225,7 @@ class HybridEngine(
             } finally {
                 isRunning.set(false)
                 isRefining.set(false)
+                awaitNewFrame.set(false)
                 try { recognizer?.close() } catch (_: Exception) {}
                 if (!isCancelled.get()) {
                     try {
@@ -243,6 +250,7 @@ class HybridEngine(
         isCancelled.set(true)
         isRunning.set(false)
         isRefining.set(false)
+        awaitNewFrame.set(false)
     }
 
     fun release() {
