@@ -108,6 +108,7 @@ class VoskEngine(private val context: Context) {
                         val resultText = if (finalText.isNotBlank()) finalText else finalAlt
                         android.util.Log.i("VoskEngine", "vosk final=$resultText")
                         callback.onFinal(resultText)
+                        recognizer.reset()
                     }
                     callback.onSessionEnded()
                 }
