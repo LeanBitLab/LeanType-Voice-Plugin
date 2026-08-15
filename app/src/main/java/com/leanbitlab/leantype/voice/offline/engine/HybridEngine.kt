@@ -53,11 +53,12 @@ class HybridEngine(
             try {
                 recognizer = voskEngine.createRecognizer()
                 if (recognizer == null) {
+                    Log.e(TAG, "Failed to create Vosk recognizer! Vosk model may not be loaded properly.")
                     callback.onError(VoiceConstants.VOICE_ERROR_MODEL_INVALID, "Failed to create Vosk recognizer")
                     return@execute
                 }
 
-                Log.i(TAG, "Hybrid session starting")
+                Log.i(TAG, "Hybrid session starting, recognizer created successfully")
                 callback.onSessionStarted()
                 inputStream = FileInputStream(audioInput.fileDescriptor)
                 val byteBuffer = ByteArray(FRAME_SIZE_BYTES)
@@ -73,18 +74,19 @@ class HybridEngine(
                     totalReadBytes += bytesRead
 
                     // 1. Feed Vosk synchronously on audio thread for real-time live partials
-                    if (recognizer.acceptWaveForm(byteBuffer, bytesRead)) {
+                    val accepted = recognizer.acceptWaveForm(byteBuffer, bytesRead)
+                    if (accepted) {
                         val text = voskEngine.parseJsonText(recognizer.result, "text")
                         if (text.isNotBlank() && !isCancelled.get()) {
                             voskAccumulatedPartial = text
-                            Log.d(TAG, "Hybrid Vosk partial: '$text'")
+                            Log.i(TAG, "Emitting Vosk acceptWaveForm text: '$text'")
                             callback.onPartial(text)
                         }
                     } else {
                         val partial = voskEngine.parseJsonText(recognizer.partialResult, "partial")
                         if (partial.isNotBlank() && !isCancelled.get()) {
                             voskAccumulatedPartial = partial
-                            Log.d(TAG, "Hybrid Vosk partial: '$partial'")
+                            Log.i(TAG, "Emitting Vosk partial: '$partial'")
                             callback.onPartial(partial)
                         }
                     }
