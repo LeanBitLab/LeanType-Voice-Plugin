@@ -25,6 +25,7 @@ class HybridEngine(
 
     private val isRunning = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
+    private val isRefining = AtomicBoolean(false)
 
     // Pre-allocated frame short buffer (up to 100ms at 16kHz) to guarantee zero heap allocations in audio loop
     private val pcmFrameBuffer = ShortArray(FRAME_BUFFER_MAX_SAMPLES)
@@ -42,6 +43,7 @@ class HybridEngine(
 
         isRunning.set(true)
         isCancelled.set(false)
+        isRefining.set(false)
         val language = config?.languageTag
 
         audioExecutor.execute {
@@ -89,7 +91,8 @@ class HybridEngine(
                         voskEngine.parseJsonText(recognizer.partialResult, "partial")
                     }
 
-                    if (partial.isNotBlank() && partial != lastEmittedPartial && !isCancelled.get()) {
+                    // Suppress partial emissions while Whisper refinement is in-flight
+                    if (partial.isNotBlank() && partial != lastEmittedPartial && !isCancelled.get() && !isRefining.get()) {
                         lastEmittedPartial = partial
                         voskAccumulatedPartial = partial
                         Log.i(TAG, "Emitting Vosk partial: '$partial'")
@@ -147,26 +150,29 @@ class HybridEngine(
                         val tau = 3000f
                         val dynamicTimeout = 250f + 350f * exp(-utteranceLengthMs / tau)
 
-                        val reachedSilence = silenceDurationMs >= dynamicTimeout && utteranceLengthMs >= MIN_UTTERANCE_MS
+                        val dynamicMet = silenceDurationMs >= dynamicTimeout && utteranceLengthMs >= MIN_UTTERANCE_MS
+                        val hardCapMet = utteranceLengthMs > 0 && silenceDurationMs >= HARD_SILENCE_CAP_MS
                         val reachedHardCap = utteranceLengthMs >= MAX_UTTERANCE_MS
 
-                        if (reachedSilence || reachedHardCap) {
-                            Log.i(TAG, "Adaptive VAD triggered (silence=${silenceDurationMs}ms, utterance=${utteranceLengthMs}ms, cutoff=${dynamicTimeout.toInt()}ms, samples=${segmentBuffer.size})")
+                        if (dynamicMet || hardCapMet || reachedHardCap) {
+                            Log.i(TAG, "Adaptive VAD triggered (silence=${silenceDurationMs}ms, utterance=${utteranceLengthMs}ms, cutoff=${dynamicTimeout.toInt()}ms, hardCapMet=$hardCapMet, samples=${segmentBuffer.size})")
 
                             // Synchronous Whisper refinement on audio thread (guarantees context thread-safety)
-                            val refined = whisperEngine.transcribeSync(segmentBuffer, language)
-                            if (refined.isNotBlank() && !isCancelled.get()) {
-                                Log.i(TAG, "Hybrid segment refined with Whisper: '$refined'")
-                                callback.onFinal(refined)
+                            isRefining.set(true)
+                            try {
+                                val refined = whisperEngine.transcribeSync(segmentBuffer, language)
+                                if (refined.isNotBlank() && !isCancelled.get()) {
+                                    Log.i(TAG, "Hybrid segment refined with Whisper: '$refined'")
+                                    callback.onFinal(refined)
+                                } else if (voskAccumulatedPartial.isNotBlank() && !isCancelled.get()) {
+                                    Log.i(TAG, "Hybrid segment fallback to Vosk: '$voskAccumulatedPartial'")
+                                    callback.onFinal(voskAccumulatedPartial)
+                                }
+                            } finally {
                                 recognizer.reset()
                                 voskAccumulatedPartial = ""
                                 lastEmittedPartial = ""
-                            } else if (voskAccumulatedPartial.isNotBlank() && !isCancelled.get()) {
-                                Log.i(TAG, "Hybrid segment fallback to Vosk: '$voskAccumulatedPartial'")
-                                callback.onFinal(voskAccumulatedPartial)
-                                recognizer.reset()
-                                voskAccumulatedPartial = ""
-                                lastEmittedPartial = ""
+                                isRefining.set(false)
                             }
 
                             segmentBuffer.clear()
@@ -181,15 +187,23 @@ class HybridEngine(
                 // 8. EOF Flush (synchronously executed before onSessionEnded)
                 if (!isCancelled.get() && segmentBuffer.isNotEmpty()) {
                     Log.i(TAG, "Hybrid EOF flush: transcribing ${segmentBuffer.size} samples")
-                    val refined = whisperEngine.transcribeSync(segmentBuffer, language)
-                    if (refined.isNotBlank()) {
-                        Log.i(TAG, "Hybrid EOF Whisper result: '$refined'")
-                        callback.onFinal(refined)
-                    } else if (voskAccumulatedPartial.isNotBlank()) {
-                        Log.i(TAG, "Hybrid EOF fallback to Vosk: '$voskAccumulatedPartial'")
-                        callback.onFinal(voskAccumulatedPartial)
-                    } else {
-                        callback.onFinal("")
+                    isRefining.set(true)
+                    try {
+                        val refined = whisperEngine.transcribeSync(segmentBuffer, language)
+                        if (refined.isNotBlank()) {
+                            Log.i(TAG, "Hybrid EOF Whisper result: '$refined'")
+                            callback.onFinal(refined)
+                        } else if (voskAccumulatedPartial.isNotBlank()) {
+                            Log.i(TAG, "Hybrid EOF fallback to Vosk: '$voskAccumulatedPartial'")
+                            callback.onFinal(voskAccumulatedPartial)
+                        } else {
+                            callback.onFinal("")
+                        }
+                    } finally {
+                        recognizer?.reset()
+                        voskAccumulatedPartial = ""
+                        lastEmittedPartial = ""
+                        isRefining.set(false)
                     }
                     segmentBuffer.clear()
                 } else if (!isCancelled.get()) {
@@ -204,6 +218,7 @@ class HybridEngine(
                 }
             } finally {
                 isRunning.set(false)
+                isRefining.set(false)
                 try { recognizer?.close() } catch (_: Exception) {}
                 if (!isCancelled.get()) {
                     try {
@@ -227,6 +242,7 @@ class HybridEngine(
     fun cancelSession() {
         isCancelled.set(true)
         isRunning.set(false)
+        isRefining.set(false)
     }
 
     fun release() {
@@ -239,6 +255,7 @@ class HybridEngine(
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz
         private const val FRAME_BUFFER_MAX_SAMPLES = 1600 // 100ms @ 16kHz
         private const val MIN_UTTERANCE_MS = 200L // 200ms minimum speech for fast command endpointing
+        private const val HARD_SILENCE_CAP_MS = 1000L // 1000ms hard cap forces split on 1-second pause
         private const val MAX_UTTERANCE_MS = 8000L // 8.0s hard cap per segment
     }
 }
