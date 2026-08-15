@@ -47,7 +47,7 @@ class HybridEngine(
             val segmentBuffer = ArrayList<Short>()
             var voskAccumulatedPartial = ""
             var totalReadBytes = 0L
-            var silenceFrames = 0
+            var lastSpeechTimeMs = 0L
             var speechDetected = false
 
             try {
@@ -77,12 +77,14 @@ class HybridEngine(
                         val text = voskEngine.parseJsonText(recognizer.result, "text")
                         if (text.isNotBlank() && !isCancelled.get()) {
                             voskAccumulatedPartial = text
+                            Log.d(TAG, "Hybrid Vosk partial: '$text'")
                             callback.onPartial(text)
                         }
                     } else {
                         val partial = voskEngine.parseJsonText(recognizer.partialResult, "partial")
                         if (partial.isNotBlank() && !isCancelled.get()) {
                             voskAccumulatedPartial = partial
+                            Log.d(TAG, "Hybrid Vosk partial: '$partial'")
                             callback.onPartial(partial)
                         }
                     }
@@ -97,26 +99,27 @@ class HybridEngine(
                         segmentBuffer.add(shortBuffer[i])
                     }
 
-                    // 3. VAD Energy Endpoint Check
+                    // 3. Timestamp-based VAD Energy Endpoint Check
                     var frameSumSq = 0.0
                     for (i in 0 until bytesRead / 2) {
                         val norm = shortBuffer[i] / 32768.0
                         frameSumSq += norm * norm
                     }
                     val frameRms = sqrt(frameSumSq / (bytesRead / 2))
+                    val now = System.currentTimeMillis()
 
                     if (frameRms > SPEECH_RMS) {
                         speechDetected = true
-                        silenceFrames = 0
-                    } else if (speechDetected) {
-                        silenceFrames++
+                        lastSpeechTimeMs = now
                     }
 
-                    val reachedSilence = speechDetected && silenceFrames >= VAD_SILENCE_FRAMES && segmentBuffer.size >= MIN_SEGMENT_SAMPLES
+                    val reachedSilence = speechDetected && lastSpeechTimeMs > 0 &&
+                            (now - lastSpeechTimeMs > VAD_SILENCE_THRESHOLD_MS) &&
+                            segmentBuffer.size >= MIN_SEGMENT_SAMPLES
                     val reachedHardCap = segmentBuffer.size >= MAX_SEGMENT_SAMPLES
 
                     if (reachedSilence || reachedHardCap) {
-                        Log.i(TAG, "Hybrid endpoint triggered (silence=$reachedSilence, hardCap=$reachedHardCap, samples=${segmentBuffer.size})")
+                        Log.i(TAG, "Hybrid VAD triggered (silence=${now - lastSpeechTimeMs}ms, hardCap=$reachedHardCap, samples=${segmentBuffer.size})")
 
                         // Synchronous Whisper refinement on audio thread (guarantees context thread-safety)
                         val refined = whisperEngine.transcribeSync(segmentBuffer, language)
@@ -133,8 +136,8 @@ class HybridEngine(
                         }
 
                         segmentBuffer.clear()
-                        silenceFrames = 0
                         speechDetected = false
+                        lastSpeechTimeMs = 0L
                     }
                 }
 
@@ -197,9 +200,9 @@ class HybridEngine(
         private const val TAG = "HybridEngine"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz
-        private const val MIN_SEGMENT_SAMPLES = SAMPLE_RATE * 1 // 1.0 second minimum
+        private const val MIN_SEGMENT_SAMPLES = (SAMPLE_RATE * 0.8).toInt() // 800ms minimum speech
         private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 8 // 8.0 seconds hard cap
-        private const val VAD_SILENCE_FRAMES = 17 // ~500ms silence after speech onset
+        private const val VAD_SILENCE_THRESHOLD_MS = 300L // 300ms silence after speech onset
         private const val SPEECH_RMS = 0.015f // Energy threshold for speech onset
     }
 }
