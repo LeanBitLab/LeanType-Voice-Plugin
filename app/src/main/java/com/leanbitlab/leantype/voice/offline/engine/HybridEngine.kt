@@ -46,6 +46,7 @@ class HybridEngine(
             var inputStream: FileInputStream? = null
             val segmentBuffer = ArrayList<Short>()
             var voskAccumulatedPartial = ""
+            var lastEmittedPartial = ""
             var totalReadBytes = 0L
             var lastSpeechTimeMs = 0L
             var speechDetected = false
@@ -75,20 +76,17 @@ class HybridEngine(
 
                     // 1. Feed Vosk synchronously on audio thread for real-time live partials
                     val accepted = recognizer.acceptWaveForm(byteBuffer, bytesRead)
-                    if (accepted) {
-                        val text = voskEngine.parseJsonText(recognizer.result, "text")
-                        if (text.isNotBlank() && !isCancelled.get()) {
-                            voskAccumulatedPartial = text
-                            Log.i(TAG, "Emitting Vosk acceptWaveForm text: '$text'")
-                            callback.onPartial(text)
-                        }
+                    val partial = if (accepted) {
+                        voskEngine.parseJsonText(recognizer.result, "text")
                     } else {
-                        val partial = voskEngine.parseJsonText(recognizer.partialResult, "partial")
-                        if (partial.isNotBlank() && !isCancelled.get()) {
-                            voskAccumulatedPartial = partial
-                            Log.i(TAG, "Emitting Vosk partial: '$partial'")
-                            callback.onPartial(partial)
-                        }
+                        voskEngine.parseJsonText(recognizer.partialResult, "partial")
+                    }
+
+                    if (partial.isNotBlank() && partial != lastEmittedPartial && !isCancelled.get()) {
+                        lastEmittedPartial = partial
+                        voskAccumulatedPartial = partial
+                        Log.i(TAG, "Emitting Vosk partial: '$partial'")
+                        callback.onPartial(partial)
                     }
 
                     // 2. Accumulate PCM samples for Whisper refinement
@@ -130,11 +128,13 @@ class HybridEngine(
                             callback.onFinal(refined)
                             recognizer.reset()
                             voskAccumulatedPartial = ""
+                            lastEmittedPartial = ""
                         } else if (voskAccumulatedPartial.isNotBlank() && !isCancelled.get()) {
                             Log.i(TAG, "Hybrid segment fallback to Vosk: '$voskAccumulatedPartial'")
                             callback.onFinal(voskAccumulatedPartial)
                             recognizer.reset()
                             voskAccumulatedPartial = ""
+                            lastEmittedPartial = ""
                         }
 
                         segmentBuffer.clear()
@@ -202,9 +202,9 @@ class HybridEngine(
         private const val TAG = "HybridEngine"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz
-        private const val MIN_SEGMENT_SAMPLES = (SAMPLE_RATE * 0.8).toInt() // 800ms minimum speech
+        private const val MIN_SEGMENT_SAMPLES = (SAMPLE_RATE * 1.2).toInt() // 1.2s minimum speech
         private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 8 // 8.0 seconds hard cap
-        private const val VAD_SILENCE_THRESHOLD_MS = 300L // 300ms silence after speech onset
+        private const val VAD_SILENCE_THRESHOLD_MS = 500L // 500ms silence after speech onset
         private const val SPEECH_RMS = 0.015f // Energy threshold for speech onset
     }
 }
