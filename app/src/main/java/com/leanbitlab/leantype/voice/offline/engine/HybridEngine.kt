@@ -238,7 +238,7 @@ class HybridEngine(
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz
         private const val FRAME_BUFFER_MAX_SAMPLES = 1600 // 100ms @ 16kHz
-        private const val MIN_UTTERANCE_MS = 1000L // 1.0s minimum speech before VAD endpointing
+        private const val MIN_UTTERANCE_MS = 200L // 200ms minimum speech for fast command endpointing
         private const val MAX_UTTERANCE_MS = 8000L // 8.0s hard cap per segment
     }
 }
