@@ -8,10 +8,10 @@ import com.leanbitlab.leantype.voice.VoiceConstants
 import com.leanbitlab.leantype.voice.VoiceSessionConfig
 import org.vosk.Recognizer
 import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.exp
+import kotlin.math.log10
 import kotlin.math.sqrt
 
 class HybridEngine(
@@ -25,6 +25,9 @@ class HybridEngine(
 
     private val isRunning = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
+
+    // Pre-allocated frame short buffer (up to 100ms at 16kHz) to guarantee zero heap allocations in audio loop
+    private val pcmFrameBuffer = ShortArray(FRAME_BUFFER_MAX_SAMPLES)
 
     fun startSession(
         audioInput: ParcelFileDescriptor,
@@ -48,8 +51,13 @@ class HybridEngine(
             var voskAccumulatedPartial = ""
             var lastEmittedPartial = ""
             var totalReadBytes = 0L
-            var lastSpeechTimeMs = 0L
-            var speechDetected = false
+
+            // Adaptive DSP VAD state variables
+            var noiseFloor = 0.001f
+            var smoothedState = 0f
+            var utteranceLengthMs = 0L
+            var silenceDurationMs = 0L
+            var isSpeaking = false
 
             try {
                 recognizer = voskEngine.createRecognizer()
@@ -63,7 +71,6 @@ class HybridEngine(
                 callback.onSessionStarted()
                 inputStream = FileInputStream(audioInput.fileDescriptor)
                 val byteBuffer = ByteArray(FRAME_SIZE_BYTES)
-                val shortBuffer = ShortArray(FRAME_SIZE_BYTES / 2)
 
                 while (isRunning.get()) {
                     val bytesRead = inputStream.read(byteBuffer)
@@ -89,61 +96,89 @@ class HybridEngine(
                         callback.onPartial(partial)
                     }
 
-                    // 2. Accumulate PCM samples for Whisper refinement
-                    ByteBuffer.wrap(byteBuffer, 0, bytesRead)
-                        .order(ByteOrder.LITTLE_ENDIAN)
-                        .asShortBuffer()
-                        .get(shortBuffer, 0, bytesRead / 2)
+                    // 2. Zero-Allocation PCM16 Little-Endian manual extraction & single-pass metrics
+                    val sampleCount = minOf(bytesRead / 2, FRAME_BUFFER_MAX_SAMPLES)
+                    var sumSquares = 0L
+                    var crossings = 0
 
-                    for (i in 0 until bytesRead / 2) {
-                        segmentBuffer.add(shortBuffer[i])
-                    }
+                    for (i in 0 until sampleCount) {
+                        val b0 = byteBuffer[i * 2].toInt() and 0xFF
+                        val b1 = byteBuffer[i * 2 + 1].toInt()
+                        val sample = ((b1 shl 8) or b0).toShort()
+                        pcmFrameBuffer[i] = sample
+                        segmentBuffer.add(sample)
 
-                    // 3. Timestamp-based VAD Energy Endpoint Check
-                    var frameSumSq = 0.0
-                    for (i in 0 until bytesRead / 2) {
-                        val norm = shortBuffer[i] / 32768.0
-                        frameSumSq += norm * norm
-                    }
-                    val frameRms = sqrt(frameSumSq / (bytesRead / 2))
-                    val now = System.currentTimeMillis()
-
-                    if (frameRms > SPEECH_RMS) {
-                        speechDetected = true
-                        lastSpeechTimeMs = now
-                    }
-
-                    val reachedSilence = speechDetected && lastSpeechTimeMs > 0 &&
-                            (now - lastSpeechTimeMs > VAD_SILENCE_THRESHOLD_MS) &&
-                            segmentBuffer.size >= MIN_SEGMENT_SAMPLES
-                    val reachedHardCap = segmentBuffer.size >= MAX_SEGMENT_SAMPLES
-
-                    if (reachedSilence || reachedHardCap) {
-                        Log.i(TAG, "Hybrid VAD triggered (silence=${now - lastSpeechTimeMs}ms, hardCap=$reachedHardCap, samples=${segmentBuffer.size})")
-
-                        // Synchronous Whisper refinement on audio thread (guarantees context thread-safety)
-                        val refined = whisperEngine.transcribeSync(segmentBuffer, language)
-                        if (refined.isNotBlank() && !isCancelled.get()) {
-                            Log.i(TAG, "Hybrid segment refined with Whisper: '$refined'")
-                            callback.onFinal(refined)
-                            recognizer.reset()
-                            voskAccumulatedPartial = ""
-                            lastEmittedPartial = ""
-                        } else if (voskAccumulatedPartial.isNotBlank() && !isCancelled.get()) {
-                            Log.i(TAG, "Hybrid segment fallback to Vosk: '$voskAccumulatedPartial'")
-                            callback.onFinal(voskAccumulatedPartial)
-                            recognizer.reset()
-                            voskAccumulatedPartial = ""
-                            lastEmittedPartial = ""
+                        sumSquares += sample.toLong() * sample.toLong()
+                        if (i > 0) {
+                            val prev = pcmFrameBuffer[i - 1]
+                            if ((sample >= 0 && prev < 0) || (sample < 0 && prev >= 0)) {
+                                crossings++
+                            }
                         }
+                    }
 
-                        segmentBuffer.clear()
-                        speechDetected = false
-                        lastSpeechTimeMs = 0L
+                    val energy = if (sampleCount > 0) sqrt((sumSquares / sampleCount).toDouble()).toFloat() / 32768f else 0f
+                    val zcr = if (sampleCount > 1) crossings.toFloat() / (sampleCount - 1) else 0f
+
+                    // 3. Stage 1: Adaptive Noise Floor (Martin's Asymmetric Smoothing)
+                    noiseFloor = 0.98f * noiseFloor + 0.02f * minOf(energy, 1.5f * noiseFloor)
+
+                    // 4. Stage 3: Signal-to-Noise Ratio & Fast Sigmoid Probability Mapping
+                    val snr = if (noiseFloor > 1e-6f) 20f * log10(energy / noiseFloor) else 0f
+                    val probSpeech = if (snr > 0f) snr / (snr + 6.0f) else 0f
+
+                    // 5. Stage 4: Temporal Hysteresis (1st-order IIR Low-Pass Filter)
+                    smoothedState = 0.85f * smoothedState + 0.15f * probSpeech
+
+                    // 6. Stage 2 & VAD State Decision
+                    val isHighFreqSpeech = (zcr > 0.15f && energy > (noiseFloor * 2f))
+                    val isFrameSpeech = smoothedState > 0.6f || isHighFreqSpeech
+                    val frameDurationMs = (sampleCount * 1000L) / SAMPLE_RATE
+
+                    if (isFrameSpeech) {
+                        isSpeaking = true
+                        silenceDurationMs = 0L
+                        utteranceLengthMs += frameDurationMs
+                    } else if (isSpeaking) {
+                        silenceDurationMs += frameDurationMs
+
+                        // 7. Stage 5: Dynamic Segmentation Timeout (Exponential decay based on utterance length)
+                        // T_min = 250ms, T_max = 600ms, tau = 3000ms
+                        val tau = 3000f
+                        val dynamicTimeout = 250f + 350f * exp(-utteranceLengthMs / tau)
+
+                        val reachedSilence = silenceDurationMs >= dynamicTimeout && utteranceLengthMs >= MIN_UTTERANCE_MS
+                        val reachedHardCap = utteranceLengthMs >= MAX_UTTERANCE_MS
+
+                        if (reachedSilence || reachedHardCap) {
+                            Log.i(TAG, "Adaptive VAD triggered (silence=${silenceDurationMs}ms, utterance=${utteranceLengthMs}ms, cutoff=${dynamicTimeout.toInt()}ms, samples=${segmentBuffer.size})")
+
+                            // Synchronous Whisper refinement on audio thread (guarantees context thread-safety)
+                            val refined = whisperEngine.transcribeSync(segmentBuffer, language)
+                            if (refined.isNotBlank() && !isCancelled.get()) {
+                                Log.i(TAG, "Hybrid segment refined with Whisper: '$refined'")
+                                callback.onFinal(refined)
+                                recognizer.reset()
+                                voskAccumulatedPartial = ""
+                                lastEmittedPartial = ""
+                            } else if (voskAccumulatedPartial.isNotBlank() && !isCancelled.get()) {
+                                Log.i(TAG, "Hybrid segment fallback to Vosk: '$voskAccumulatedPartial'")
+                                callback.onFinal(voskAccumulatedPartial)
+                                recognizer.reset()
+                                voskAccumulatedPartial = ""
+                                lastEmittedPartial = ""
+                            }
+
+                            segmentBuffer.clear()
+                            isSpeaking = false
+                            silenceDurationMs = 0L
+                            utteranceLengthMs = 0L
+                            smoothedState = 0f
+                        }
                     }
                 }
 
-                // 4. EOF Flush (synchronously executed before onSessionEnded)
+                // 8. EOF Flush (synchronously executed before onSessionEnded)
                 if (!isCancelled.get() && segmentBuffer.isNotEmpty()) {
                     Log.i(TAG, "Hybrid EOF flush: transcribing ${segmentBuffer.size} samples")
                     val refined = whisperEngine.transcribeSync(segmentBuffer, language)
@@ -202,9 +237,8 @@ class HybridEngine(
         private const val TAG = "HybridEngine"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz
-        private const val MIN_SEGMENT_SAMPLES = (SAMPLE_RATE * 1.2).toInt() // 1.2s minimum speech
-        private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 8 // 8.0 seconds hard cap
-        private const val VAD_SILENCE_THRESHOLD_MS = 500L // 500ms silence after speech onset
-        private const val SPEECH_RMS = 0.015f // Energy threshold for speech onset
+        private const val FRAME_BUFFER_MAX_SAMPLES = 1600 // 100ms @ 16kHz
+        private const val MIN_UTTERANCE_MS = 1000L // 1.0s minimum speech before VAD endpointing
+        private const val MAX_UTTERANCE_MS = 8000L // 8.0s hard cap per segment
     }
 }
