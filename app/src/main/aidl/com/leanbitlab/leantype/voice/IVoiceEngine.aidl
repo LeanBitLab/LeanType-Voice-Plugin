@@ -10,7 +10,7 @@ import android.os.ParcelFileDescriptor;
 interface IVoiceEngine {
     VoiceEngineInfo getInfo();
     ModelState getModelState(String engineType);
-    void importModel(in ModelImportRequest request);
+    oneway void importModel(in ModelImportRequest request);
     void unloadModel(String engineType);
     void deleteModel(String engineType);
     void startSession(

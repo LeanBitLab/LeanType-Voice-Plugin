@@ -26,6 +26,10 @@ class VoiceEngineService : Service() {
     private lateinit var hybridEngine: HybridEngine
     @Volatile private var isSessionActive = false
 
+    private val modelExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "ModelImportThread").apply { isDaemon = true }
+    }
+
     private val binder = object : IVoiceEngine.Stub() {
 
         override fun getInfo(): VoiceEngineInfo {
@@ -46,7 +50,13 @@ class VoiceEngineService : Service() {
 
         override fun importModel(request: ModelImportRequest?) {
             if (request != null) {
-                modelManager.importModelSafely(request)
+                modelExecutor.execute {
+                    try {
+                        modelManager.importModelSafely(request)
+                    } catch (e: Exception) {
+                        Log.e("VoiceEngineService", "Background import failed", e)
+                    }
+                }
             }
         }
 
