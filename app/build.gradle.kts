@@ -54,7 +54,11 @@ android {
             }
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
             }
@@ -70,7 +74,5 @@ android {
 }
 
 dependencies {
-    implementation("com.alphacephei:vosk-android:0.3.47@aar")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
     implementation("androidx.core:core-ktx:1.15.0")
 }

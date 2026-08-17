@@ -12,7 +12,6 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.zip.ZipInputStream
 
 class ModelManager(
     private val context: Context,
@@ -28,20 +27,14 @@ class ModelManager(
             return ModelState(engineType, ModelState.STATE_MISSING, "Model not imported")
         }
 
-        return if (engineType == VoiceConstants.ENGINE_VOSK) {
-            if (targetFile.isDirectory && (targetFile.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)) {
-                ModelState(engineType, ModelState.STATE_READY, "Model loaded")
-            } else {
-                ModelState(engineType, ModelState.STATE_ERROR, "Invalid Vosk model directory")
-            }
-        } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
+        return if (engineType == VoiceConstants.ENGINE_WHISPER) {
             if (isWhisperHeaderValid(targetFile)) {
                 ModelState(engineType, ModelState.STATE_READY, "Model loaded")
             } else {
                 ModelState(engineType, ModelState.STATE_ERROR, "Not a valid Whisper ASR model")
             }
         } else {
-            ModelState(engineType, ModelState.STATE_MISSING, "Unknown engine")
+            ModelState(engineType, ModelState.STATE_MISSING, "Unsupported engine")
         }
     }
 
@@ -49,9 +42,7 @@ class ModelManager(
         val targetFile = File(modelsDir, engineType)
         if (!targetFile.exists()) return false
 
-        return if (engineType == VoiceConstants.ENGINE_VOSK) {
-            targetFile.isDirectory && (targetFile.listFiles()?.any { it.name == "am" || it.name == "conf" } == true)
-        } else if (engineType == VoiceConstants.ENGINE_WHISPER) {
+        return if (engineType == VoiceConstants.ENGINE_WHISPER) {
             isWhisperHeaderValid(targetFile)
         } else {
             false
@@ -64,10 +55,15 @@ class ModelManager(
 
     fun importModelSafely(request: ModelImportRequest): Boolean {
         val targetEngine = request.engineType
+        if (targetEngine != VoiceConstants.ENGINE_WHISPER) {
+            Log.e(TAG, "Unsupported engine type for import: $targetEngine")
+            return false
+        }
+
         val tmpFile = File(modelsDir, "${targetEngine}_${System.currentTimeMillis()}.tmp")
 
         try {
-            Log.i(TAG, "Starting model import for $targetEngine, size: ${request.sizeBytes} bytes")
+            Log.i(TAG, "Starting Whisper model import, size: ${request.sizeBytes} bytes")
             ParcelFileDescriptor.AutoCloseInputStream(request.file).use { input ->
                 FileOutputStream(tmpFile).use { output ->
                     input.copyTo(output)
@@ -84,54 +80,25 @@ class ModelManager(
             // Release any in-flight context before overwriting model file
             onPreDeleteModel?.invoke(targetEngine)
 
-            return if (targetEngine == VoiceConstants.ENGINE_VOSK) {
-                extractVoskModel(tmpFile, modelsDir)
-            } else if (targetEngine == VoiceConstants.ENGINE_WHISPER) {
-                if (!validateWhisperModelOnImport(tmpFile)) {
-                    Log.e(TAG, "Imported file is not a valid Whisper model")
-                    tmpFile.delete()
-                    return false
-                }
-                val finalFile = File(modelsDir, targetEngine)
-                finalFile.deleteRecursively()
-                val success = tmpFile.renameTo(finalFile)
-                if (!success) {
-                    tmpFile.copyTo(finalFile, overwrite = true)
-                    tmpFile.delete()
-                }
-                Log.i(TAG, "Whisper model installed successfully: ${finalFile.absolutePath}")
-                true
-            } else {
+            if (!validateWhisperModelOnImport(tmpFile)) {
+                Log.e(TAG, "Imported file is not a valid Whisper model")
                 tmpFile.delete()
-                false
+                return false
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to import model for $targetEngine", e)
-            tmpFile.delete()
-            return false
-        }
-    }
 
-    fun extractVoskModel(tmpZip: File, targetDir: File): Boolean {
-        val extractTmp = File(targetDir, "extract_tmp_${System.currentTimeMillis()}")
-        try {
-            extractTmp.mkdirs()
-            safeUnzip(tmpZip, extractTmp)
-            val root = findVoskRoot(extractTmp) ?: return false
-            val finalDir = File(targetDir, VoiceConstants.ENGINE_VOSK)
-            finalDir.deleteRecursively()
-
-            if (!root.renameTo(finalDir)) {
-                root.copyRecursively(finalDir, overwrite = true)
-                root.deleteRecursively()
+            val finalFile = File(modelsDir, targetEngine)
+            finalFile.deleteRecursively()
+            val success = tmpFile.renameTo(finalFile)
+            if (!success) {
+                tmpFile.copyTo(finalFile, overwrite = true)
+                tmpFile.delete()
             }
+            Log.i(TAG, "Whisper model installed successfully: ${finalFile.absolutePath}")
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error extracting Vosk model", e)
+            Log.e(TAG, "Failed to import Whisper model", e)
+            tmpFile.delete()
             return false
-        } finally {
-            extractTmp.deleteRecursively()
-            tmpZip.delete()
         }
     }
 
@@ -185,46 +152,6 @@ class ModelManager(
             }
         }
         return true
-    }
-
-    private fun safeUnzip(zipFile: File, targetDir: File) {
-        val canonicalDestDirPath = targetDir.canonicalPath
-        ZipInputStream(zipFile.inputStream()).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                val newFile = File(targetDir, entry.name)
-                val canonicalNewFilePath = newFile.canonicalPath
-
-                if (!canonicalNewFilePath.startsWith(canonicalDestDirPath + File.separator) &&
-                    canonicalNewFilePath != canonicalDestDirPath
-                ) {
-                    throw SecurityException("Zip entry is outside target dir: ${entry.name}")
-                }
-
-                if (entry.isDirectory) {
-                    newFile.mkdirs()
-                } else {
-                    newFile.parentFile?.mkdirs()
-                    FileOutputStream(newFile).use { fos ->
-                        zis.copyTo(fos)
-                    }
-                }
-                zis.closeEntry()
-                entry = zis.nextEntry
-            }
-        }
-    }
-
-    private fun findVoskRoot(dir: File): File? {
-        if (dir.isDirectory && dir.listFiles()?.any { it.name == "am" || it.name == "conf" } == true) {
-            return dir
-        }
-        val subdirs = dir.listFiles()?.filter { it.isDirectory } ?: emptyList()
-        for (subdir in subdirs) {
-            val root = findVoskRoot(subdir)
-            if (root != null) return root
-        }
-        return null
     }
 
     private fun verifySha256(file: File, expectedHash: String): Boolean {
