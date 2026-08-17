@@ -83,14 +83,9 @@ class WhisperEngine {
         if (contextPtr == 0L || samples.isEmpty()) return ""
         val pcm = ShortArray(samples.size) { samples[it] }
 
-        var sumSq = 0.0
-        for (s in pcm) {
-            val norm = s / 32768.0
-            sumSq += norm * norm
-        }
-        val segmentRms = sqrt(sumSq / pcm.size)
-        if (segmentRms < SILENCE_RMS) {
-            Log.d(TAG, "transcribeSync: RMS $segmentRms below threshold $SILENCE_RMS")
+        val peakRms = calculatePeakWindowRms(pcm)
+        if (peakRms < SILENCE_RMS) {
+            Log.d(TAG, "transcribeSync: Peak RMS $peakRms below threshold $SILENCE_RMS")
             return ""
         }
 
@@ -202,17 +197,12 @@ class WhisperEngine {
 
         val pcm = ShortArray(samples.size) { samples[it] }
 
-        // RMS Hallucination Gate: discard silent audio chunks without inference
-        var sumSq = 0.0
-        for (s in pcm) {
-            val norm = s / 32768.0
-            sumSq += norm * norm
-        }
-        val segmentRms = sqrt(sumSq / pcm.size)
-        Log.i(TAG, "Utterance samples: ${pcm.size}, RMS: $segmentRms (threshold: $SILENCE_RMS)")
+        // Windowed Peak RMS Gate: ensures short spoken words are not diluted by trailing silence
+        val peakRms = calculatePeakWindowRms(pcm)
+        Log.i(TAG, "Utterance samples: ${pcm.size}, Peak RMS: $peakRms (threshold: $SILENCE_RMS)")
 
-        if (segmentRms < SILENCE_RMS) {
-            Log.w(TAG, "RMS gate triggered! Audio discarded as silence (RMS: $segmentRms < $SILENCE_RMS)")
+        if (peakRms < SILENCE_RMS) {
+            Log.w(TAG, "Peak RMS gate triggered! Audio discarded as silence (Peak RMS: $peakRms < $SILENCE_RMS)")
             if (!isCancelled.get()) {
                 try { callback.onFinal("") } catch (_: Exception) {}
             }
@@ -235,6 +225,27 @@ class WhisperEngine {
         }
     }
 
+    private fun calculatePeakWindowRms(pcm: ShortArray, windowSize: Int = 1600): Double {
+        if (pcm.isEmpty()) return 0.0
+        var maxRms = 0.0
+        var i = 0
+        while (i < pcm.size) {
+            val end = minOf(i + windowSize, pcm.size)
+            val count = end - i
+            var sumSq = 0.0
+            for (j in i until end) {
+                val norm = pcm[j] / 32768.0
+                sumSq += norm * norm
+            }
+            val windowRms = sqrt(sumSq / count)
+            if (windowRms > maxRms) {
+                maxRms = windowRms
+            }
+            i += windowSize
+        }
+        return maxRms
+    }
+
     fun cancelSession() {
         isCancelled.set(true)
         isRunning.set(false)
@@ -250,6 +261,6 @@ class WhisperEngine {
         private const val TAG = "WhisperEngine"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_BYTES = 960 // 30ms @ 16kHz 16-bit mono
-        private const val SILENCE_RMS = 0.005f // Low threshold to prevent dropping quiet speech
+        private const val SILENCE_RMS = 0.001f // Sensitive peak threshold to reliably detect short words
     }
 }
