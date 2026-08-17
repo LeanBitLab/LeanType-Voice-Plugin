@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <permission
-        android:name="com.leanbitlab.leantype.permission.BIND_VOICE_PLUGIN"
-        android:protectionLevel="signature" />
-
     <queries>
         <package android:name="com.leanbitlab.leantype" />
         <package android:name="com.leanbitlab.leantype.debug" />
+        <package android:name="com.leanbitlab.leantype.offline" />
+        <package android:name="com.leanbitlab.leantype.offline.debug" />
     </queries>
 
     <application
@@ -16,8 +14,7 @@
 
         <service
             android:name=".VoiceEngineService"
-            android:exported="true"
-            android:permission="com.leanbitlab.leantype.permission.BIND_VOICE_PLUGIN">
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.leanbitlab.leantype.voice.offline.ENGINE" />
             </intent-filter>
