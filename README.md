@@ -18,3 +18,15 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 ## License
 Licensed under the [GNU General Public License v3.0](LICENSE).
 
+## 💖 Support the Development
+
+If you find this project helpful, consider supporting the continuous development of the LeanType ecosystem:
+
+<div align="left">
+  <a href="https://github.com/sponsors/LeanBitLab" target="_blank">
+    <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" />
+  </a>
+  <a href="https://opencollective.com/leanbitlab-org" target="_blank">
+    <img src="https://img.shields.io/badge/Donate-Open%20Collective-7B93FE?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
+</div>
