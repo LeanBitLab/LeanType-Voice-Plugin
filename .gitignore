@@ -1,16 +1,48 @@
-*.iml
-.gradle
-/local.properties
-/.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+# Built application & Android outputs
+build/
+captures/
 *.apk
+*.ap_
 *.aab
+*.dex
+*.class
+
+# Gradle & Kotlin caches
+.gradle/
+.kotlin/
+.kotlin-daemon.*
+
+# C++ / NDK / CMake artifacts
+.cxx/
+.externalNativeBuild/
+cmake-build-*/
+
+# IDE & Editor files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+
+# Secrets & Local Configuration
+local.properties
 keystore.properties
 *.jks
 *.keystore
+*.key
+*.p12
+*.pepk
+google-services.json
 
+# OS & Temporary / Profiling files
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+*.swo
+*.hprof
+*.log

@@ -3,14 +3,18 @@
 Offline voice input plugin for [LeanType Keyboard](https://github.com/LeanBitLab/LeanType).
 
 ## Overview
-This plugin provides on-device speech-to-text capabilities using Vosk (with future Whisper support) for LeanType Keyboard via an IPC AIDL contract (`IVoiceEngine`).
+This plugin provides fast, on-device offline speech-to-text capabilities using [whisper.cpp](https://github.com/ggerganov/whisper.cpp) for the LeanType Keyboard via an IPC AIDL contract (`IVoiceEngine`).
 
 ## Architecture
+- **Engine**: Whisper.cpp with ARM64 NEON optimizations & JNI bridge
 - **AIDL Interface**: `com.leanbitlab.leantype.voice.IVoiceEngine`
 - **Service Action**: `com.leanbitlab.leantype.voice.offline.ENGINE`
-- **Permission**: `com.leanbitlab.leantype.permission.BIND_VOICE_PLUGIN` (signature-protected)
 
 ## Building
 ```bash
 ./gradlew assembleDebug
 ```
+
+## License
+Licensed under the [GNU General Public License v3.0](LICENSE).
+
