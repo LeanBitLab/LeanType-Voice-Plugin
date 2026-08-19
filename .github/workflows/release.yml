@@ -52,6 +52,7 @@ jobs:
         with:
           files: app/build/outputs/apk/release/voice_plugin.apk
           name: Voice Plugin ${{ github.ref_name }}
+          body_path: docs/release_notes/${{ github.ref_name }}.md
           draft: false
           prerelease: false
         env:
