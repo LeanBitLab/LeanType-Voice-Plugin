@@ -1,0 +1,58 @@
+name: Build & Release Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code with Submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set Up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Decode Keystore
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+        if: ${{ env.RELEASE_KEYSTORE != '' }}
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > voice-plugin-release.jks
+          echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}" > keystore.properties
+          echo "keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}" >> keystore.properties
+          echo "storeFile=voice-plugin-release.jks" >> keystore.properties
+          echo "storePassword=${{ secrets.RELEASE_STORE_PASSWORD }}" >> keystore.properties
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+        continue-on-error: true
+
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: app/build/outputs/apk/release/voice_plugin.apk
+          name: Voice Plugin ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
