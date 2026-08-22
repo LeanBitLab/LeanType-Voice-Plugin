@@ -26,6 +26,7 @@ object WhisperNative {
         contextPtr: Long,
         pcmData: FloatArray,
         language: String?,
-        threads: Int
+        threads: Int,
+        initialPrompt: String? = null
     ): String
 }

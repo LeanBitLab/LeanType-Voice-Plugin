@@ -115,7 +115,12 @@ class WhisperEngine {
         isRunning.set(true)
         isCancelled.set(false)
         val language = normalizeLanguageTag(config?.languageTag)
-        val numThreads = minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
+        val numThreads = if (config != null && config.cpuThreads > 0) {
+            config.cpuThreads
+        } else {
+            minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
+        }
+        val customPrompt = config?.customPrompt?.takeIf { it.isNotBlank() }
 
         audioExecutor.execute {
             var inputStream: FileInputStream? = null
@@ -152,7 +157,7 @@ class WhisperEngine {
                 Log.i(TAG, "Processing utterance on EOF (samples=${utteranceBuffer.size}, isCancelled=${isCancelled.get()})")
                 if (!isCancelled.get() && utteranceBuffer.isNotEmpty()) {
                     Log.i(TAG, "EOF flush: transcribing ${utteranceBuffer.size} samples (%.2f sec)".format(utteranceBuffer.size / 16000.0))
-                    val text = transcribeAndEmit(utteranceBuffer, language, numThreads, callback)
+                    val text = transcribeAndEmit(utteranceBuffer, language, numThreads, customPrompt, callback)
                     Log.i(TAG, "EOF result: '$text'")
                     utteranceBuffer.clear()
                 } else if (!isCancelled.get()) {
@@ -191,6 +196,7 @@ class WhisperEngine {
         samples: List<Short>,
         language: String?,
         threads: Int,
+        prompt: String?,
         callback: IVoiceCallback
     ): String {
         if (isCancelled.get() || contextPtr == 0L || samples.isEmpty()) return ""
@@ -211,7 +217,7 @@ class WhisperEngine {
 
         val floatPcm = FloatArray(pcm.size) { pcm[it] / 32768.0f }
         return try {
-            val rawText = WhisperNative.transcribe(contextPtr, floatPcm, language, threads)
+            val rawText = WhisperNative.transcribe(contextPtr, floatPcm, language, threads, prompt)
             Log.i(TAG, "JNI transcribe returned: '$rawText'")
             val finalText = rawText.trim()
             if (!isCancelled.get()) {

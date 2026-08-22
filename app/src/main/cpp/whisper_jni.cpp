@@ -69,7 +69,8 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
         jlong context_ptr,
         jfloatArray pcm_data,
         jstring language,
-        jint threads) {
+        jint threads,
+        jstring initial_prompt) {
     if (context_ptr == 0 || pcm_data == nullptr) {
         return env->NewStringUTF("");
     }
@@ -101,6 +102,14 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
         lang_str = env->GetStringUTFChars(language, nullptr);
     }
 
+    const char *prompt_str = nullptr;
+    if (initial_prompt != nullptr) {
+        prompt_str = env->GetStringUTFChars(initial_prompt, nullptr);
+        if (prompt_str != nullptr && strlen(prompt_str) > 0) {
+            params.initial_prompt = prompt_str;
+        }
+    }
+
     std::string active_lang = "en";
     if (!is_multilingual) {
         params.language = "en";
@@ -114,8 +123,9 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
         params.detect_language = false;
     }
 
-    LOGI("Starting whisper_full: samples=%d (%.2f sec), language=%s, is_multilingual=%d, threads=%d",
-         len, (float)len / 16000.0f, params.language, is_multilingual, params.n_threads);
+    LOGI("Starting whisper_full: samples=%d (%.2f sec), language=%s, is_multilingual=%d, threads=%d, prompt=%s",
+         len, (float)len / 16000.0f, params.language, is_multilingual, params.n_threads,
+         params.initial_prompt ? params.initial_prompt : "<none>");
 
     int ret = whisper_full(ctx, params, samples, len);
 
@@ -123,6 +133,9 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
 
     if (lang_str != nullptr) {
         env->ReleaseStringUTFChars(language, lang_str);
+    }
+    if (prompt_str != nullptr) {
+        env->ReleaseStringUTFChars(initial_prompt, prompt_str);
     }
     env->ReleaseFloatArrayElements(pcm_data, samples, JNI_ABORT);
 
