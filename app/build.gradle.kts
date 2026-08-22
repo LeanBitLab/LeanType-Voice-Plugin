@@ -73,6 +73,9 @@ android {
                 abiFilters.clear()
                 abiFilters += "arm64-v8a"
             }
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             isMinifyEnabled = true
