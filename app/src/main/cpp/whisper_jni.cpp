@@ -110,8 +110,8 @@ Java_com_leanbitlab_leantype_voice_offline_engine_WhisperNative_transcribe(
         params.language = active_lang.c_str();
         params.detect_language = false;
     } else {
-        params.language = "en";
-        params.detect_language = false;
+        params.language = "auto";
+        params.detect_language = true;
     }
 
     LOGI("Starting whisper_full: samples=%d (%.2f sec), language=%s, is_multilingual=%d, threads=%d",

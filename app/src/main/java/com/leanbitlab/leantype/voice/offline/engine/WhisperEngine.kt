@@ -252,9 +252,11 @@ class WhisperEngine {
     }
 
     private fun normalizeLanguageTag(tag: String?): String? {
-        if (tag.isNullOrBlank()) return null
-        val code = tag.substringBefore('-').lowercase().trim()
-        return if (code.length == 2) code else null
+        if (tag.isNullOrBlank()) return "auto"
+        val trimmed = tag.trim().lowercase()
+        if (trimmed == "auto") return "auto"
+        val code = trimmed.substringBefore('-').trim()
+        return if (code.length == 2 || code.length == 3) code else "auto"
     }
 
     companion object {
