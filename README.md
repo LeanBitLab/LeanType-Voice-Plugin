@@ -10,6 +10,12 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 - **AIDL Interface**: `com.leanbitlab.leantype.voice.IVoiceEngine`
 - **Service Action**: `com.leanbitlab.leantype.voice.offline.ENGINE`
 
+## 📋 System Requirements
+
+- **Operating System**: Android 5.0 (API 21) or higher
+- **Supported CPU Architectures**: `arm64-v8a`, `armeabi-v7a`, `x86_64`
+- **Host Keyboard**: [LeanType](https://github.com/LeanBitLab/LeanType) v4.1.0+ (All flavors)
+
 ## Building
 ```bash
 ./gradlew assembleDebug
