@@ -43,16 +43,23 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 
 ### 3. Recommended Whisper Models
 
+Both stock OpenAI Whisper and **FUTO ACFT (Audio-Context Fine-Tuned)** models are supported. ACFT models are specifically optimized for mobile dictation to prevent repetition loops and hallucinations on short voice clips.
+
+For direct download links and full comparisons across English and Multilingual variants, see the [Voice Models Catalog](docs/MODELS.md).
+
 | Model | Size | Speed | RAM Usage | Best For |
 | :--- | :---: | :---: | :---: | :--- |
-| **`ggml-tiny.bin`** | ~39 MB | ⚡ Ultra-Fast | ~150 MB | Low-end devices & quick voice typing |
-| **`ggml-base.bin`** *(Recommended)* | ~74 MB | ⚡ Fast | ~250 MB | Best balance of accuracy & speed |
-| **`ggml-small.bin`** | ~244 MB | 🟡 Moderate | ~600 MB | High accuracy on modern devices |
+| **FUTO Base (ACFT)** *(Recommended)* | ~78 MB | ⚡ Fast | ~250 MB | Best accuracy & speed for mobile dictation |
+| **OpenAI Base (Q5_1)** | ~57 MB | ⚡ Fast | ~200 MB | Stock multilingual model |
+| **FUTO Tiny (ACFT)** | ~42 MB | ⚡ Ultra-Fast | ~150 MB | Low-end devices & quick voice typing |
+| **FUTO Small (ACFT)** | ~252 MB | 🟡 Moderate | ~650 MB | High accuracy on modern devices |
+
+See [docs/MODELS.md](docs/MODELS.md) for direct download links.
 
 ### 4. Start Voice Typing
 1. Bring up LeanType keyboard in any text field.
 2. Tap the **Microphone icon** on the keyboard toolbar.
-3. Speak clearly — text will stream directly into the active input field!
+3. Speak clearly: text will stream directly into the active input field!
 
 ---
 
