@@ -17,6 +17,10 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_NO_OPENMP ON CACHE BOOL "" FORCE)
 
+if (ANDROID_ABI STREQUAL "arm64-v8a")
+    set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "ggml ARM arch" FORCE)
+endif()
+
 add_subdirectory(whisper.cpp)
 
 add_library(whisper_jni SHARED whisper_jni.cpp)

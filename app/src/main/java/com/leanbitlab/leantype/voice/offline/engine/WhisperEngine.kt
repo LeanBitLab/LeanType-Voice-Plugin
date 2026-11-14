@@ -81,11 +81,10 @@ class WhisperEngine {
 
     fun transcribeSync(samples: List<Short>, language: String?): String {
         if (contextPtr == 0L || samples.isEmpty()) return ""
-        val pcm = ShortArray(samples.size) { samples[it] }
-
-        val peakRms = calculatePeakWindowRms(pcm)
-        if (peakRms < SILENCE_RMS) {
-            Log.d(TAG, "transcribeSync: Peak RMS $peakRms below threshold $SILENCE_RMS")
+        val rawPcm = ShortArray(samples.size) { samples[it] }
+        val pcm = trimLeadingAndTrailingSilence(rawPcm)
+        if (pcm.isEmpty()) {
+            Log.d(TAG, "transcribeSync: Audio discarded as silence after trimming")
             return ""
         }
 
@@ -201,14 +200,11 @@ class WhisperEngine {
     ): String {
         if (isCancelled.get() || contextPtr == 0L || samples.isEmpty()) return ""
 
-        val pcm = ShortArray(samples.size) { samples[it] }
+        val rawPcm = ShortArray(samples.size) { samples[it] }
+        val pcm = trimLeadingAndTrailingSilence(rawPcm)
 
-        // Windowed Peak RMS Gate: ensures short spoken words are not diluted by trailing silence
-        val peakRms = calculatePeakWindowRms(pcm)
-        Log.i(TAG, "Utterance samples: ${pcm.size}, Peak RMS: $peakRms (threshold: $SILENCE_RMS)")
-
-        if (peakRms < SILENCE_RMS) {
-            Log.w(TAG, "Peak RMS gate triggered! Audio discarded as silence (Peak RMS: $peakRms < $SILENCE_RMS)")
+        if (pcm.isEmpty()) {
+            Log.w(TAG, "Peak RMS gate triggered! Audio discarded as silence after trimming")
             if (!isCancelled.get()) {
                 try { callback.onFinal("") } catch (_: Exception) {}
             }
@@ -229,6 +225,56 @@ class WhisperEngine {
             Log.e(TAG, "Whisper transcription failed", e)
             ""
         }
+    }
+
+    internal fun trimLeadingAndTrailingSilence(pcm: ShortArray, sampleRate: Int = SAMPLE_RATE): ShortArray {
+        if (pcm.isEmpty()) return pcm
+        val windowSize = (sampleRate * 0.03).toInt() // 30ms = 480 samples at 16kHz
+        if (pcm.size <= windowSize * 2) return pcm
+
+        val peakRms = calculatePeakWindowRms(pcm, windowSize)
+        if (peakRms < SILENCE_RMS) {
+            Log.w(TAG, "Utterance peak RMS ($peakRms) below silence threshold ($SILENCE_RMS)")
+            return ShortArray(0)
+        }
+
+        // Sensitive speech threshold adaptively scaled to peak RMS, bounded between 0.003 and 0.010
+        val speechThreshold = maxOf(0.003, minOf(0.010, peakRms * 0.12))
+        var firstSpeechSample = -1
+        var lastSpeechSample = -1
+
+        var i = 0
+        while (i < pcm.size) {
+            val end = minOf(i + windowSize, pcm.size)
+            val count = end - i
+            var sumSq = 0.0
+            for (j in i until end) {
+                val norm = pcm[j] / 32768.0
+                sumSq += norm * norm
+            }
+            val frameRms = sqrt(sumSq / count)
+            if (frameRms >= speechThreshold) {
+                if (firstSpeechSample == -1) {
+                    firstSpeechSample = i
+                }
+                lastSpeechSample = end
+            }
+            i += windowSize
+        }
+
+        if (firstSpeechSample == -1 || lastSpeechSample == -1) {
+            return pcm
+        }
+
+        // 300ms safety padding on both ends ensures quiet consonants and vocal onsets/tails are preserved
+        val paddingSamples = (sampleRate * 0.30).toInt()
+        val start = maxOf(0, firstSpeechSample - paddingSamples)
+        val end = minOf(pcm.size, lastSpeechSample + paddingSamples)
+
+        Log.i(TAG, "trimSilence: trimmed from ${pcm.size} samples (%.2fs) to ${end - start} samples (%.2fs)"
+            .format(pcm.size.toDouble() / sampleRate, (end - start).toDouble() / sampleRate))
+
+        return pcm.copyOfRange(start, end)
     }
 
     private fun calculatePeakWindowRms(pcm: ShortArray, windowSize: Int = 1600): Double {
