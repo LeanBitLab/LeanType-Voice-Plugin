@@ -22,7 +22,7 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 
 - **Operating System**: Android 5.0 (API 21) or higher
 - **Supported CPU Architectures**: `arm64-v8a`, `armeabi-v7a`, `x86_64`
-- **CPU feature requirement (`arm64-v8a`)**: Since v1.0.3 the 64-bit build is compiled for ARMv8.2 with dot-product and FP16 instructions (`-march=armv8.2-a+dotprod+fp16`), which needs a CPU from roughly 2018 on (Cortex-A55/A75 class and newer). 64-bit CPUs without these instructions (for example Cortex-A53, A57, A72 or A73 only devices) cannot run it. whisper.cpp itself has no Android version requirement beyond the plugin's minimum.
+- **CPU feature requirement (`arm64-v8a`)**: The standard 64-bit build (`voice_plugin-arm64-v8a.apk`, and the universal APK on 64-bit devices) is compiled for ARMv8.2 with dot-product and FP16 instructions (`-march=armv8.2-a+dotprod+fp16`) for speed. This needs a CPU from roughly 2018 on (Cortex-A55/A75 class and newer). On older 64-bit CPUs (for example Cortex-A53, A57, A72 or A73 only devices) the plugin detects this and shows a message instead of crashing; install **`voice_plugin-arm64-v8a-compat.apk`** from the releases there. It runs on every ARMv8 CPU, a little slower. whisper.cpp itself has no Android version requirement beyond the plugin's minimum.
 - **Host Keyboard**: [LeanType](https://github.com/LeanBitLab/LeanType) v4.1.0+ (All flavors); v4.3.3+ for the **Transcribe while speaking** option
 - **Permissions**: Microphone permission (`RECORD_AUDIO`)
 
@@ -82,6 +82,7 @@ The plugin is an on-demand service. LeanType connects to it when you start voice
 ### 7. Troubleshooting
 - **"Voice plugin is not installed"**: Install the plugin APK from the [releases](https://github.com/LeanBitLab/LeanType-Voice-Plugin/releases/latest) page.
 - **"Failed to import model into voice plugin"**: Update the plugin to the latest release and import the `.bin` file again.
+- **"This device's CPU lacks the ARMv8.2 dot-product and FP16 instructions"**: Install `voice_plugin-arm64-v8a-compat.apk` from the releases page over the current plugin.
 - **No text or only a part of it**: Choose a larger model, check the microphone permission of the plugin, and try a longer **Silence Timeout**.
 
 ---
@@ -90,6 +91,8 @@ The plugin is an on-demand service. LeanType connects to it when you start voice
 ```bash
 ./gradlew assembleDebug
 ```
+The compat arm64 APK is built with `./gradlew :app:assembleRelease -PcompatCpu=true` (output in `app/build-compat`). It differs only in the compiler architecture of the native code.
+
 Debug builds use the package `com.leanbitlab.leantype.voice.offline.debug`, so they can be installed next to the release plugin. LeanType debug builds connect to the debug plugin when it is installed.
 
 ## License

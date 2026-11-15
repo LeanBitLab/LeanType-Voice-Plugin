@@ -46,11 +46,17 @@ jobs:
       - name: Build Release APK
         run: ./gradlew :app:assembleRelease
 
+      # arm64 build for CPUs without the ARMv8.2 dot-product and FP16 instructions (separate output folder)
+      - name: Build Compat arm64 APK
+        run: ./gradlew :app:assembleRelease -PcompatCpu=true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: app/build/outputs/apk/release/voice_plugin*.apk
+          files: |
+            app/build/outputs/apk/release/voice_plugin*.apk
+            app/build-compat/outputs/apk/release/voice_plugin-arm64-v8a-compat.apk
           name: Voice Plugin ${{ github.ref_name }}
           body_path: docs/release_notes/${{ github.ref_name }}.md
           draft: false

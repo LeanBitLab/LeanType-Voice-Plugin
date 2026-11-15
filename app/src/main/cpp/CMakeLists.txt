@@ -17,7 +17,10 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_NO_OPENMP ON CACHE BOOL "" FORCE)
 
-if (ANDROID_ABI STREQUAL "arm64-v8a")
+# The fast arm64 build uses ARMv8.2 dot-product and FP16 instructions, which CPUs before about 2018 (Cortex-A53,
+# A57, A72, A73) do not have. The compat build leaves the architecture at the NDK default (ARMv8-a with NEON).
+option(VOICE_COMPAT_CPU "arm64 build for every ARMv8-a CPU, without dot-product and FP16 instructions" OFF)
+if (ANDROID_ABI STREQUAL "arm64-v8a" AND NOT VOICE_COMPAT_CPU)
     set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "ggml ARM arch" FORCE)
 endif()
 

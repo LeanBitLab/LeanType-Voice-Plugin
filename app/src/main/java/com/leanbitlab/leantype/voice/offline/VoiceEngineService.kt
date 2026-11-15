@@ -13,7 +13,9 @@ import com.leanbitlab.leantype.voice.ModelState
 import com.leanbitlab.leantype.voice.VoiceConstants
 import com.leanbitlab.leantype.voice.VoiceEngineInfo
 import com.leanbitlab.leantype.voice.VoiceSessionConfig
+import com.leanbitlab.leantype.voice.offline.engine.CpuSupport
 import com.leanbitlab.leantype.voice.offline.engine.WhisperEngine
+import com.leanbitlab.leantype.voice.offline.engine.WhisperNative
 import com.leanbitlab.leantype.voice.offline.model.ModelManager
 
 class VoiceEngineService : Service() {
@@ -103,6 +105,12 @@ class VoiceEngineService : Service() {
                     isSessionActive = false
                     callback.onSessionEnded()
                 }
+            }
+
+            if (!WhisperNative.isCpuSupported) {
+                try { audioInput.close() } catch (_: Exception) {}
+                callback.onError(VoiceConstants.VOICE_ERROR_UNSUPPORTED_CPU, CpuSupport.UNSUPPORTED_MESSAGE)
+                return
             }
 
             val whisperModelFile = modelManager.getModelDir(VoiceConstants.ENGINE_WHISPER)

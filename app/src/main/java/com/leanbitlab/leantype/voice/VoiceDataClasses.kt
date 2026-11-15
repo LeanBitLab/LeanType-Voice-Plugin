@@ -70,6 +70,7 @@ object VoiceConstants {
     const val VOICE_ERROR_TIMEOUT = 1006
     const val VOICE_ERROR_CANCELLED = 1007
     const val VOICE_ERROR_UNKNOWN = 1008
+    const val VOICE_ERROR_UNSUPPORTED_CPU = 1009
 
     const val PREF_VOICE_OFFLINE_ENABLED = "voice_offline_enabled"
     const val PREF_VOICE_MODE = "voice_mode"

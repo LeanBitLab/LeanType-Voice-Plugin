@@ -7,8 +7,13 @@ object WhisperNative {
     private const val TAG = "WhisperNative"
     private var isLoaded = false
 
+    /** False if the CPU cannot run this build; the library is not loaded then, as using it would crash the process */
+    val isCpuSupported: Boolean = CpuSupport.isSupported()
+
     init {
-        try {
+        if (!isCpuSupported) {
+            Log.e(TAG, "Not loading whisper_jni: ${CpuSupport.UNSUPPORTED_MESSAGE}")
+        } else try {
             System.loadLibrary("whisper_jni")
             isLoaded = true
             Log.i(TAG, "whisper_jni native library loaded successfully")
