@@ -29,8 +29,8 @@ android {
         applicationId = "com.leanbitlab.leantype.voice.offline"
         minSdk = 21
         targetSdk = 35
-        versionCode = 103
-        versionName = "1.0.3"
+        versionCode = 104
+        versionName = "1.0.4"
 
         // true if the arm64 library of this build needs ARMv8.2 dot-product and FP16 (see CMakeLists.txt)
         buildConfigField("boolean", "ARM64_NEEDS_ARMV82", (!compatCpu).toString())
