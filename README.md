@@ -50,11 +50,11 @@ For direct download links and full comparisons across English and Multilingual v
 
 | Model | Size | Speed | RAM Usage | Best For |
 | :--- | :---: | :---: | :---: | :--- |
-| **LeanType Base (English)** | ~57 MB | ⚡ Fast | ~200 MB | High-accuracy English dictation |
+| **LeanType Base (English)** | ~57 MB | ⚡ Fast | ~215 MB | High-accuracy English dictation |
 | **LeanType Base (Multilingual)** | ~57 MB | ⚡ Fast | ~220 MB | Balanced multilingual accuracy across 99 languages |
-| **LeanType Tiny (English)** | ~31 MB | ⚡ Ultra-Fast | ~120 MB | Low-end devices & fast English typing |
+| **LeanType Tiny (English)** | ~31 MB | ⚡ Ultra-Fast | ~130 MB | Low-end devices & fast English typing |
 | **LeanType Tiny (Multilingual)** | ~31 MB | ⚡ Ultra-Fast | ~130 MB | Quick multilingual typing on entry devices |
-| **LeanType Small (English / Multilingual)** | ~182 MB | 🟡 Moderate | ~550 MB | Maximum accuracy for complex terminology |
+| **LeanType Small (English / Multilingual)** | ~182 MB | 🟡 Moderate | ~435-440 MB | Maximum accuracy for complex terminology |
 | **FUTO Base (ACFT)** | ~78 MB | ⚡ Fast | ~250 MB | Mobile dictation fine-tuned on variable audio contexts |
 | **FUTO Tiny (ACFT)** | ~42 MB | ⚡ Ultra-Fast | ~150 MB | Quick mobile voice typing on entry devices |
 | **FUTO Small (ACFT)** | ~252 MB | 🟡 Moderate | ~650 MB | High accuracy on modern devices |
