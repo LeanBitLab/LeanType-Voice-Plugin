@@ -6,16 +6,16 @@ The LeanType Offline Voice Plugin uses [whisper.cpp](https://github.com/ggergano
 
 ## 🎙️ LeanType Whisper Models (Built-in & Direct Download)
 
-Official models built, quantized (Q5_1), and verified with quality gates via [LeanBitLab/leantype-whisper-models](https://github.com/LeanBitLab/leantype-whisper-models). These models are available as built-in 1-tap downloads within LeanType keyboard (`Standard` flavor) or via direct download below.
+Official models built, quantized (Q5_1), and verified with quality gates via [LeanBitLab/leantype-whisper-models](https://github.com/LeanBitLab/leantype-whisper-models). These models are available as built-in 1-tap downloads within LeanType keyboard (`Standard` flavor) or via direct download below. RAM is the peak private memory measured on a POCO M2 Pro (Snapdragon 720G, 4 threads), see the [benchmarks](https://github.com/LeanBitLab/leantype-whisper-models/tree/main/bench).
 
 ### English-Only Models
 Best for users who dictate exclusively in English. Because all attention heads and embeddings are dedicated to English acoustics, these provide higher accuracy and faster inference.
 
 | Model Variant | File Size | Speed | RAM | Best For | Direct Download |
 | :--- | :---: | :---: | :---: | :--- | :---: |
-| **Tiny (English)** (`whisper-tiny.en-q5_1`) | ~31 MB | ⚡ Ultra-Fast | ~120 MB | Low-end devices & quick voice typing | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-tiny.en-q5_1.bin) |
-| **Base (English)** (`whisper-base.en-q5_1`) | ~57 MB | ⚡ Fast | ~200 MB | High accuracy English dictation | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-base.en-q5_1.bin) |
-| **Small (English)** (`whisper-small.en-q5_1`) | ~182 MB | 🟡 Moderate | ~550 MB | Maximum English accuracy for complex terminology | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-small.en-q5_1.bin) |
+| **Tiny (English)** (`whisper-tiny.en-q5_1`) | ~31 MB | ⚡ Ultra-Fast | ~130 MB | Low-end devices & quick voice typing | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-tiny.en-q5_1.bin) |
+| **Base (English)** (`whisper-base.en-q5_1`) | ~57 MB | ⚡ Fast | ~215 MB | High accuracy English dictation | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-base.en-q5_1.bin) |
+| **Small (English)** (`whisper-small.en-q5_1`) | ~182 MB | 🟡 Moderate | ~435 MB | Maximum English accuracy for complex terminology | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-small.en-q5_1.bin) |
 
 ### Multilingual Models
 Supports 99 languages with automatic language detection or explicit language selection.
@@ -24,7 +24,7 @@ Supports 99 languages with automatic language detection or explicit language sel
 | :--- | :---: | :---: | :---: | :--- | :---: |
 | **Tiny (Multilingual)** (`whisper-tiny-q5_1`) | ~31 MB | ⚡ Ultra-Fast | ~130 MB | Quick multilingual typing on entry devices | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-tiny-q5_1.bin) |
 | **Base (Multilingual)** (`whisper-base-q5_1`) | ~57 MB | ⚡ Fast | ~220 MB | Balanced multilingual accuracy across 99 languages | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-base-q5_1.bin) |
-| **Small (Multilingual)** (`whisper-small-q5_1`) | ~182 MB | 🟡 Moderate | ~600 MB | Superior accuracy across 99 languages | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-small-q5_1.bin) |
+| **Small (Multilingual)** (`whisper-small-q5_1`) | ~182 MB | 🟡 Moderate | ~440 MB | Superior accuracy across 99 languages | [Download .bin](https://github.com/LeanBitLab/leantype-whisper-models/releases/download/v1.0.0/leantype-whisper-small-q5_1.bin) |
 
 ---
 
