@@ -22,7 +22,7 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 
 - **Operating System**: Android 5.0 (API 21) or higher
 - **Supported CPU Architectures**: `arm64-v8a`, `armeabi-v7a`, `x86_64`
-- **Host Keyboard**: [LeanType](https://github.com/LeanBitLab/LeanType) v4.1.0+ (All flavors)
+- **Host Keyboard**: [LeanType](https://github.com/LeanBitLab/LeanType) v4.1.0+ (All flavors); v4.3.3+ for the **Transcribe while speaking** option
 - **Permissions**: Microphone permission (`RECORD_AUDIO`)
 
 ---
@@ -36,22 +36,26 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 
 ### 2. Download Whisper Models in LeanType
 1. Open LeanType keyboard settings.
-2. Navigate to **Settings → Voice typing** (or **Settings → Plugins → Voice**).
-3. Tap **Whisper Speech Models**:
+2. Navigate to **Settings → Plugins → Voice Input**.
+3. Tap **Whisper Models**:
    - **Online Flavors (`Standard` / `Standard Full`)**: Download models directly inside the app with 1 tap.
-   - **Offline Flavors (`Offline` / `Offline Lite`)**: Download `.bin` models in your browser and use **Import Model** to select them from device storage.
+   - **Offline Flavors (`Offline` / `Offline Lite`)**: Download `.bin` models in your browser, then tap **Import** on **Custom GGML Model** and select the file from device storage.
 
-### 3. Recommended Whisper Models
+### 3. Whisper Speech Models
 
-Both stock OpenAI Whisper and **FUTO ACFT (Audio-Context Fine-Tuned)** models are supported. ACFT models are specifically optimized for mobile dictation to prevent repetition loops and hallucinations on short voice clips.
+LeanType provides official, optimized Whisper speech models with verifiable build provenance and quantization via [leantype-whisper-models](https://github.com/LeanBitLab/leantype-whisper-models). Third-party GGML models, including FUTO ACFT (Audio-Context Fine-Tuned) models, are also supported.
 
 For direct download links and full comparisons across English and Multilingual variants, see the [Voice Models Catalog](docs/MODELS.md).
 
 | Model | Size | Speed | RAM Usage | Best For |
 | :--- | :---: | :---: | :---: | :--- |
-| **FUTO Base (ACFT)** *(Recommended)* | ~78 MB | ⚡ Fast | ~250 MB | Best accuracy & speed for mobile dictation |
-| **OpenAI Base (Q5_1)** | ~57 MB | ⚡ Fast | ~200 MB | Stock multilingual model |
-| **FUTO Tiny (ACFT)** | ~42 MB | ⚡ Ultra-Fast | ~150 MB | Low-end devices & quick voice typing |
+| **LeanType Base (English)** | ~57 MB | ⚡ Fast | ~200 MB | High-accuracy English dictation |
+| **LeanType Base (Multilingual)** | ~57 MB | ⚡ Fast | ~220 MB | Balanced multilingual accuracy across 99 languages |
+| **LeanType Tiny (English)** | ~31 MB | ⚡ Ultra-Fast | ~120 MB | Low-end devices & fast English typing |
+| **LeanType Tiny (Multilingual)** | ~31 MB | ⚡ Ultra-Fast | ~130 MB | Quick multilingual typing on entry devices |
+| **LeanType Small (English / Multilingual)** | ~182 MB | 🟡 Moderate | ~550 MB | Maximum accuracy for complex terminology |
+| **FUTO Base (ACFT)** | ~78 MB | ⚡ Fast | ~250 MB | Mobile dictation fine-tuned on variable audio contexts |
+| **FUTO Tiny (ACFT)** | ~42 MB | ⚡ Ultra-Fast | ~150 MB | Quick mobile voice typing on entry devices |
 | **FUTO Small (ACFT)** | ~252 MB | 🟡 Moderate | ~650 MB | High accuracy on modern devices |
 
 See [docs/MODELS.md](docs/MODELS.md) for direct download links.
@@ -59,7 +63,25 @@ See [docs/MODELS.md](docs/MODELS.md) for direct download links.
 ### 4. Start Voice Typing
 1. Bring up LeanType keyboard in any text field.
 2. Tap the **Microphone icon** on the keyboard toolbar.
-3. Speak clearly: text will stream directly into the active input field!
+3. Speak clearly: the text is inserted into the active input field when you stop or pause.
+4. Tap the microphone again to stop, or the cancel button on the strip to discard the recording. While the text is being processed, tapping the microphone does not cancel it.
+
+### 5. Voice Input Options
+These options are in **Settings → Plugins → Voice Input** in LeanType:
+
+- **Silence Timeout**: How long a pause ends the recording automatically (default 3 seconds).
+- **Transcribe while speaking** *(LeanType v4.3.3+, off by default)*: Transcribes each part of a long dictation at every pause in speech, so less is left to process when you stop. Silence at the end of each part is cut before it is transcribed, which avoids invented trailing words. If the text field changes while you dictate, the rest is not inserted and a message is shown.
+- **Keep screen on**: Prevents the screen timeout while voice typing is active.
+- **Keep model in memory**: Keeps the model loaded for a chosen time (1, 5 or 15 minutes, or always) to avoid the reload delay, or unloads it right after the session.
+- **Language**: Follow the keyboard language, auto-detect, or pick one of the supported Whisper languages.
+
+### 6. Battery & Background Behavior
+The plugin is an on-demand service. LeanType connects to it when you start voice typing or import a model and releases it again when voice typing is idle or when the screen turns off, so it does not keep running in the background. If the plugin is busy (for example while copying a model), the release is retried later instead of being skipped.
+
+### 7. Troubleshooting
+- **"Voice plugin is not installed"**: Install the plugin APK from the [releases](https://github.com/LeanBitLab/LeanType-Voice-Plugin/releases/latest) page.
+- **"Failed to import model into voice plugin"**: Update the plugin to the latest release and import the `.bin` file again.
+- **No text or only a part of it**: Choose a larger model, check the microphone permission of the plugin, and try a longer **Silence Timeout**.
 
 ---
 
@@ -67,6 +89,7 @@ See [docs/MODELS.md](docs/MODELS.md) for direct download links.
 ```bash
 ./gradlew assembleDebug
 ```
+Debug builds use the package `com.leanbitlab.leantype.voice.offline.debug`, so they can be installed next to the release plugin. LeanType debug builds connect to the debug plugin when it is installed.
 
 ## License
 Licensed under the [GNU General Public License v3.0](LICENSE).
