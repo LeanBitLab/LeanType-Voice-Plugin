@@ -22,6 +22,7 @@ This plugin provides fast, on-device offline speech-to-text capabilities using [
 
 - **Operating System**: Android 5.0 (API 21) or higher
 - **Supported CPU Architectures**: `arm64-v8a`, `armeabi-v7a`, `x86_64`
+- **CPU feature requirement (`arm64-v8a`)**: Since v1.0.3 the 64-bit build is compiled for ARMv8.2 with dot-product and FP16 instructions (`-march=armv8.2-a+dotprod+fp16`), which needs a CPU from roughly 2018 on (Cortex-A55/A75 class and newer). 64-bit CPUs without these instructions (for example Cortex-A53, A57, A72 or A73 only devices) cannot run it. whisper.cpp itself has no Android version requirement beyond the plugin's minimum.
 - **Host Keyboard**: [LeanType](https://github.com/LeanBitLab/LeanType) v4.1.0+ (All flavors); v4.3.3+ for the **Transcribe while speaking** option
 - **Permissions**: Microphone permission (`RECORD_AUDIO`)
 
